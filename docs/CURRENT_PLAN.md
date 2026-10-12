@@ -49,8 +49,8 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Blockers
 
-- Linux 环境缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能执行完整 Windows 应用构建；GitHub 虽有 workflow 文件但 Actions API 当前未登记任何 workflow，首次 F0 云端验证尚无法触发。
+- Linux 环境缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能执行完整 Windows 应用构建。当前仓库是 `hehudieyiqi/pixshell` 的 fork：上游 Actions API 登记 4 个 active workflow，而本 fork 在默认分支含有同样的 workflow 文件时仍返回 0；须先完成 fork 的 Actions 启用/初始化。
 
 ## Next Action
 
-恢复 GitHub 对 `main` 中 workflow 的登记；`build` 出现后手动以 ref `dev` 运行，确认 Windows 测试、zip 与 setup artifact，并将运行链接/结果写回 Handoff。验证通过后，在 Windows 工具链环境执行 W0，再实施 W1。W2–W4 必须先获得逐项确认。
+在 fork 的 Actions 页面启用 workflows（而非只设置 Actions permissions）；`build` 出现后手动以 ref `dev` 运行，确认 Windows 测试、zip 与 setup artifact，并将运行链接/结果写回 Handoff。若启用后仍为 0，需用户明确批准 `dev → main` PR 以让 GitHub 重新索引默认分支；不得直接推送 `main`。验证通过后，在 Windows 工具链环境执行 W0，再实施 W1。W2–W4 必须先获得逐项确认。
