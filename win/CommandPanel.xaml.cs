@@ -34,6 +34,8 @@ public partial class CommandPanel : UserControl
     private string? _selectedGroup;
     private string? _selectedCmdId;   // 列表里被选中的那条（左栏「发送」用）
     private bool _editorCollapsed;
+    private Point _dragStart;
+    private string? _dragCommandId;
 
     // 右栏展开宽度；收起后只留一个窄条（对齐 mac rightExpanded/rightCollapsed）。
     private const double RightExpanded = 213;
@@ -174,6 +176,7 @@ public partial class CommandPanel : UserControl
             };
             // 单击 = 选中并载入编辑器；双击 = 直接发送（用 ClickCount 区分，避免误触打到服务器）。
             name.PreviewMouseLeftButtonDown += OnChipMouseDown;
+            name.PreviewMouseMove += OnChipMouseMove;
 
             // ⚙ = 这条命令的编辑/删除入口（老仓库每条命令后面都有个齿轮）
             var gear = new Button
@@ -187,7 +190,12 @@ public partial class CommandPanel : UserControl
             };
             gear.Click += OnGearClicked;
 
-            var cell = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 6) };
+            var cell = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 6, 6),
+                Uid = c.Id,
+            };
             cell.Children.Add(name);
             cell.Children.Add(gear);
             ChipsRow.Children.Add(cell);
@@ -250,6 +258,8 @@ public partial class CommandPanel : UserControl
         var c = CommandStore.Commands.FirstOrDefault(x => x.Id == id);
         if (c == null) return;
         _selectedCmdId = id;
+        _dragStart = e.GetPosition(ChipsRow);
+        _dragCommandId = id;
         Editor.Text = c.Command;
         if (e.ClickCount >= 2)   // 双击 = 直接发送
         {
@@ -257,8 +267,67 @@ public partial class CommandPanel : UserControl
             e.Handled = true;
             return;
         }
-        ReloadChips();   // 刷新选中高亮
+        RefreshChipSelection();
     }
+
+    private void RefreshChipSelection()
+    {
+        foreach (var cell in ChipsRow.Children.OfType<StackPanel>())
+        {
+            var name = cell.Children.OfType<Button>().FirstOrDefault();
+            if (name != null) name.Tag = name.Uid == _selectedCmdId ? "Primary" : null;
+        }
+    }
+
+    private void OnChipMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_dragCommandId == null || _selectedGroup == null || e.LeftButton != MouseButtonState.Pressed) return;
+        var position = e.GetPosition(ChipsRow);
+        if (Math.Abs(position.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(position.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        var id = _dragCommandId;
+        _dragCommandId = null;
+        DragDrop.DoDragDrop((DependencyObject)sender, new DataObject(typeof(string), id), DragDropEffects.Move);
+    }
+
+    private void OnChipsDragOver(object sender, DragEventArgs e)
+    {
+        var id = DraggedCommandId(e);
+        var command = id == null ? null : CommandStore.Commands.FirstOrDefault(c => c.Id == id);
+        e.Effects = _selectedGroup != null && command != null && GroupOf(command) == _selectedGroup
+            ? DragDropEffects.Move
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnChipsDrop(object sender, DragEventArgs e)
+    {
+        var id = DraggedCommandId(e);
+        if (id == null || _selectedGroup == null) return;
+        var command = CommandStore.Commands.FirstOrDefault(c => c.Id == id);
+        if (command == null || GroupOf(command) != _selectedGroup) return;
+
+        var beforeId = CommandIdFrom(e.OriginalSource as DependencyObject);
+        if (CommandStore.ReorderBefore(id, beforeId)) ReloadChips();
+        e.Handled = true;
+    }
+
+    private static string? DraggedCommandId(DragEventArgs e) =>
+        e.Data.GetDataPresent(typeof(string)) ? e.Data.GetData(typeof(string)) as string : null;
+
+    private static string? CommandIdFrom(DependencyObject? source)
+    {
+        while (source != null)
+        {
+            if (source is FrameworkElement element && !string.IsNullOrWhiteSpace(element.Uid)) return element.Uid;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return null;
+    }
+
+    private static string GroupOf(QuickCommand command) =>
+        string.IsNullOrEmpty(command.Group) ? "默认" : command.Group;
 
     private void OnGearClicked(object sender, RoutedEventArgs e)
     {
@@ -450,11 +519,16 @@ public partial class CommandPanel : UserControl
         var nm = nameBox.Text.Trim();
         var cm = cmdBox.Text.Trim();
         if (nm.Length == 0 || cm.Length == 0) return;
-        var item = existing ?? new QuickCommand();
-        item.Name = nm;
-        item.Command = cm;
-        item.Group = string.IsNullOrWhiteSpace(groupBox.Text) ? "默认" : groupBox.Text.Trim();
-        item.AutoReturn = autoReturnBox.IsChecked;
+        var item = new QuickCommand
+        {
+            Id = existing?.Id ?? Guid.NewGuid().ToString(),
+            Name = nm,
+            Command = cm,
+            Group = string.IsNullOrWhiteSpace(groupBox.Text) ? "默认" : groupBox.Text.Trim(),
+            Params = existing?.Params,
+            AutoReturn = autoReturnBox.IsChecked,
+            SortOrder = existing?.SortOrder,
+        };
         CommandStore.Upsert(item);
         ReloadGroups();
         ReloadChips();

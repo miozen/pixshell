@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；下一切片为 W1 快捷命令排序。**
+**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1 已完成 `sortOrder` 持久化与同组拖拽排序实现，集中验证待后续执行。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -21,7 +21,7 @@
 
 ## In Progress
 
-- W1：同组“上移/下移”、跨组移动追加到目标组末尾及持久化回归测试已实现；待 Windows UI 手工验收和手动 `dev` CI 构建验证。
+- W1：同组“上移/下移”、跨组移动追加到目标组末尾、显式 `sortOrder` 持久化和同组拖拽排序均已实现；用户要求后续集中验证，待测项已记入对齐契约。
 
 ## Remaining
 
@@ -45,7 +45,7 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 - 本轮文档：检查标准文件存在、相对链接有效、Git 状态与 Handoff 一致，并执行 `git diff --check`。
 - F0 静态复核：已核对测试项目、`win/build.ps1 -Action test` 入口和 CI 触发范围。WSL 的 .NET 9.0.121 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release`，3/3 通过；完整 WPF 构建仍须 Windows 工具链或 GitHub Windows runner。
-- W1：WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，4/4 通过；Windows WPF UI 尚待在实机与 GitHub Windows runner 验证。
+- W1：第一部分曾在 WSL 运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，4/4 通过。`sortOrder` 与拖拽新增实现尚未执行集中验证；待测清单见 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md#w1-集中验证清单实现后执行)。
 
 ## Blockers
 
@@ -53,4 +53,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-复核 W1 diff 后提交并推送 `dev`；手动运行 GitHub `build`（ref `dev`）确认 Windows Test、Publish、zip/setup artifact，再在 Windows 实机验证快捷命令的上移、下移、跨组移动后目标组末尾及重启顺序。W0 上传失败路径保留为暂缓验证；macOS 包解析失败另立修复任务；W2–W4 必须先获得逐项确认。
+将已完成的 W1 作为未验证检查点提交并推送 `dev`；整个已确认 Windows W 路线完成后再集中执行 W0/W1 的自动化、Windows UI、发布和 CI 验收。W0 上传失败路径保留为暂缓验证；W2–W4 必须先获得逐项确认，不能自行开始。

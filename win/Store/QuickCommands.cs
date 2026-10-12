@@ -25,6 +25,10 @@ public class QuickCommand
     public string Command { get; set; } = "";
     public List<QuickCommandParam>? Params { get; set; }
     public bool? AutoReturn { get; set; } = true;
+
+    /// <summary>同一分组内的显示顺序。旧文件缺少该字段时按原 JSON 数组顺序兼容。</summary>
+    [JsonPropertyName("sortOrder")]
+    public int? SortOrder { get; set; }
 }
 
 /// <summary>
@@ -142,6 +146,7 @@ public sealed class QuickCommandStore
         EmptyGroups.RemoveAll(g => g == name);
         foreach (var c in Commands)
             if ((string.IsNullOrEmpty(c.Group) ? "默认" : c.Group) == name) c.Group = "默认";
+        NormalizeSortOrders();
         SaveGroups();
         Save();
     }
@@ -155,6 +160,7 @@ public sealed class QuickCommandStore
         if (i >= 0) EmptyGroups[i] = n;
         foreach (var c in Commands)
             if ((string.IsNullOrEmpty(c.Group) ? "默认" : c.Group) == oldName) c.Group = n;
+        NormalizeSortOrders();
         SaveGroups();
         Save();
     }
@@ -172,10 +178,9 @@ public sealed class QuickCommandStore
         var targetGroup = string.IsNullOrEmpty(group) ? "默认" : group;
         if (GroupOf(command) == targetGroup) return;
 
-        Commands.RemoveAt(sourceIndex);
         command.Group = targetGroup;
-        var targetTail = Commands.FindLastIndex(x => GroupOf(x) == targetGroup);
-        Commands.Insert(targetTail < 0 ? Commands.Count : targetTail + 1, command);
+        command.SortOrder = NextSortOrder(targetGroup);
+        NormalizeSortOrders();
         Save();
     }
 
@@ -183,19 +188,59 @@ public sealed class QuickCommandStore
 
     public bool CanMoveDown(string id) => FindNeighborIndex(id, 1) >= 0;
 
-    /// <summary>仅在同一分组内交换相邻命令，JSON 数组顺序即为持久化顺序。</summary>
+    /// <summary>仅在同一分组内交换相邻命令，并更新持久化 sortOrder。</summary>
     public bool MoveUp(string id) => MoveWithinGroup(id, -1);
 
-    /// <summary>仅在同一分组内交换相邻命令，JSON 数组顺序即为持久化顺序。</summary>
+    /// <summary>仅在同一分组内交换相邻命令，并更新持久化 sortOrder。</summary>
     public bool MoveDown(string id) => MoveWithinGroup(id, 1);
+
+    /// <summary>
+    /// 将命令拖拽到同组另一命令之前；<paramref name="beforeId"/> 为 null 时追加到该组末尾。
+    /// 该操作不允许借拖拽改变分组，跨组移动仍必须使用 <see cref="Move"/>。
+    /// </summary>
+    public bool ReorderBefore(string id, string? beforeId)
+    {
+        if (beforeId == id) return false;
+        var index = Commands.FindIndex(x => x.Id == id);
+        if (index < 0) return false;
+
+        var group = GroupOf(Commands[index]);
+        if (beforeId != null)
+        {
+            var before = Commands.FindIndex(x => x.Id == beforeId);
+            if (before < 0 || GroupOf(Commands[before]) != group) return false;
+        }
+
+        NormalizeSortOrders();
+        var ordered = OrderedIndices(group);
+        if (!ordered.Remove(index)) return false;
+
+        if (beforeId == null)
+        {
+            ordered.Add(index);
+        }
+        else
+        {
+            var beforeIndex = Commands.FindIndex(x => x.Id == beforeId);
+            var insertAt = ordered.IndexOf(beforeIndex);
+            if (insertAt < 0) return false;
+            ordered.Insert(insertAt, index);
+        }
+
+        ApplyOrder(ordered);
+        Save();
+        return true;
+    }
 
     private bool MoveWithinGroup(string id, int direction)
     {
         var index = Commands.FindIndex(x => x.Id == id);
+        NormalizeSortOrders();
         var neighbor = FindNeighborIndex(id, direction);
         if (index < 0 || neighbor < 0) return false;
 
-        (Commands[index], Commands[neighbor]) = (Commands[neighbor], Commands[index]);
+        (Commands[index].SortOrder, Commands[neighbor].SortOrder) =
+            (Commands[neighbor].SortOrder, Commands[index].SortOrder);
         Save();
         return true;
     }
@@ -205,28 +250,69 @@ public sealed class QuickCommandStore
         var index = Commands.FindIndex(x => x.Id == id);
         if (index < 0) return -1;
 
-        var group = GroupOf(Commands[index]);
-        for (var i = index + direction; i >= 0 && i < Commands.Count; i += direction)
-            if (GroupOf(Commands[i]) == group) return i;
-        return -1;
+        var ordered = OrderedIndices(GroupOf(Commands[index]));
+        var position = ordered.IndexOf(index);
+        var neighborPosition = position + direction;
+        return neighborPosition >= 0 && neighborPosition < ordered.Count ? ordered[neighborPosition] : -1;
     }
 
     public List<QuickCommand> List(string? group) =>
         string.IsNullOrEmpty(group)
             ? Commands
-            : Commands.Where(c => GroupOf(c) == group).ToList();
+            : OrderedIndices(group).Select(i => Commands[i]).ToList();
 
     public void Upsert(QuickCommand c)
     {
         var i = Commands.FindIndex(x => x.Id == c.Id);
-        if (i >= 0) Commands[i] = c; else Commands.Add(c);
+        if (i >= 0)
+        {
+            var oldGroup = GroupOf(Commands[i]);
+            var newGroup = GroupOf(c);
+            c.SortOrder = oldGroup == newGroup ? Commands[i].SortOrder : NextSortOrder(newGroup);
+            Commands[i] = c;
+        }
+        else
+        {
+            c.SortOrder = NextSortOrder(GroupOf(c));
+            Commands.Add(c);
+        }
+        NormalizeSortOrders();
         Save();
     }
 
     public void Delete(string id)
     {
         Commands.RemoveAll(c => c.Id == id);
+        NormalizeSortOrders();
         Save();
+    }
+
+    private List<int> OrderedIndices(string group) => Commands
+        .Select((command, index) => (command, index))
+        .Where(x => GroupOf(x.command) == group)
+        .OrderBy(x => x.command.SortOrder ?? int.MaxValue)
+        .ThenBy(x => x.index)
+        .Select(x => x.index)
+        .ToList();
+
+    private int NextSortOrder(string group)
+    {
+        var orders = Commands.Where(c => GroupOf(c) == group && c.SortOrder.HasValue)
+            .Select(c => c.SortOrder!.Value);
+        return orders.Any() ? orders.Max() + 1 : Commands.Count(c => GroupOf(c) == group);
+    }
+
+    /// <summary>为旧 JSON 和异常/重复的排序值生成连续的同组顺序。</summary>
+    private void NormalizeSortOrders()
+    {
+        foreach (var group in Commands.Select(GroupOf).Distinct())
+            ApplyOrder(OrderedIndices(group));
+    }
+
+    private void ApplyOrder(IReadOnlyList<int> indices)
+    {
+        for (var position = 0; position < indices.Count; position++)
+            Commands[indices[position]].SortOrder = position;
     }
 
     /// <summary>用给定取值 + 参数默认值渲染模板（对齐 mac render）。</summary>

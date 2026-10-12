@@ -64,6 +64,25 @@ public sealed class QuickCommandStoreTests : IDisposable
     }
 
     [Fact]
+    public void DragReorderPersistsExplicitSortOrderAndRejectsCrossGroupTargets()
+    {
+        var store = new QuickCommandStore(_dir);
+        store.Commands.Clear();
+        store.Upsert(new QuickCommand { Id = "first", Name = "First", Group = "ops", Command = "first" });
+        store.Upsert(new QuickCommand { Id = "second", Name = "Second", Group = "ops", Command = "second" });
+        store.Upsert(new QuickCommand { Id = "third", Name = "Third", Group = "ops", Command = "third" });
+        store.Upsert(new QuickCommand { Id = "other", Name = "Other", Group = "other", Command = "other" });
+
+        Assert.True(store.ReorderBefore("third", "first"));
+        Assert.False(store.ReorderBefore("first", "other"));
+
+        var reloaded = new QuickCommandStore(_dir);
+        Assert.Equal(new[] { "third", "first", "second" }, reloaded.List("ops").Select(c => c.Id));
+        Assert.Equal(new[] { 0, 1, 2 }, reloaded.List("ops").Select(c => c.SortOrder));
+        Assert.Contains("\"sortOrder\"", File.ReadAllText(Path.Combine(_dir, "quick-commands.json")));
+    }
+
+    [Fact]
     public void RenderUsesExplicitValuesBeforeDefaults()
     {
         var store = new QuickCommandStore(_dir);

@@ -38,7 +38,8 @@
                 <Border Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder}"
                         BorderThickness="1" CornerRadius="{DynamicResource RadiusSm}">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="6">
-                        <WrapPanel x:Name="ChipsRow" Orientation="Horizontal" Background="Transparent"/>
+                        <WrapPanel x:Name="ChipsRow" Orientation="Horizontal" Background="Transparent"
+                                   AllowDrop="True" DragOver="OnChipsDragOver" Drop="OnChipsDrop"/>
                     </ScrollViewer>
                 </Border>
             </Grid>
