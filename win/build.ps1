@@ -148,17 +148,17 @@ try {
     Write-Host '[WARN] Could not stop an existing PixShell process; continuing.' -ForegroundColor Yellow
 }
 
-Invoke-Dotnet restore $project -r $Runtime
-
 if ($Action -eq 'test') {
     if (-not (Test-Path -LiteralPath $testProject)) {
         Fail "Test project not found: $testProject"
     }
-    Invoke-Dotnet restore $testProject -r $Runtime
-    Invoke-Dotnet test $testProject -c $Configuration -r $Runtime --no-restore --verbosity minimal -nologo
+    Invoke-Dotnet restore $testProject
+    Invoke-Dotnet test $testProject -c $Configuration --no-restore --verbosity minimal -nologo
     Write-Host '[OK] Tests passed.' -ForegroundColor Green
     exit 0
 }
+
+Invoke-Dotnet restore $project -r $Runtime
 
 if ($Action -eq 'build' -or $Action -eq 'run') {
     Invoke-Dotnet build $project -c $Configuration -r $Runtime --self-contained $selfContainedValue --verbosity minimal -nologo --no-restore

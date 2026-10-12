@@ -44,12 +44,12 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 ## Validation
 
 - 本轮文档：检查标准文件存在、相对链接有效、Git 状态与 Handoff 一致，并执行 `git diff --check`。
-- F0 静态复核：已核对测试项目、`win/build.ps1 -Action test` 入口和 CI 触发范围；当前环境不含 Swift、.NET 或 Xcode，未在本机运行原生构建或测试。
+- F0 静态复核：已核对测试项目、`win/build.ps1 -Action test` 入口和 CI 触发范围。WSL 的 .NET 9.0.121 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release`，3/3 通过；完整 WPF 构建仍须 Windows 工具链或 GitHub Windows runner。
 
 ## Blockers
 
-- 当前 Linux 环境无法执行 macOS/Windows 原生构建；GitHub Windows runner 的首次 F0 验证尚待触发。
+- Linux 环境缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能执行完整 Windows 应用构建；GitHub 虽有 workflow 文件但 Actions API 当前未登记任何 workflow，首次 F0 云端验证尚无法触发。
 
 ## Next Action
 
-以 `workflow_dispatch` 手动运行 `dev` 的 GitHub build，确认 Windows 测试、zip 与 setup artifact，并将运行链接/结果写回 Handoff。验证通过后，在 Windows 工具链环境执行 W0，再实施 W1。W2–W4 必须先获得逐项确认。
+恢复 GitHub 对 `main` 中 workflow 的登记；`build` 出现后手动以 ref `dev` 运行，确认 Windows 测试、zip 与 setup artifact，并将运行链接/结果写回 Handoff。验证通过后，在 Windows 工具链环境执行 W0，再实施 W1。W2–W4 必须先获得逐项确认。
