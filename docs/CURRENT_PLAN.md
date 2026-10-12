@@ -19,11 +19,11 @@
 
 ## In Progress
 
-- F0：本地已建立 `dev`、最小快捷命令自动化测试、`main` 自动 CI 与 `dev` 手动 CI 触发策略；待提交、推送并以 GitHub Windows runner 验证测试和安装产物。
+- F0：`origin/dev` 已建立，最小快捷命令自动化测试、`main` 自动 CI 与 `dev` 手动 CI 触发策略均已提交并推送；待以 GitHub Windows runner 验证测试和安装产物。
 
 ## Remaining
 
-- 将本地 `dev` 的 F0 检查点推送为 `origin/dev`；保持 `dev` 仅手动触发 GitHub 构建，同时让 GitHub CI 覆盖 `main` push 自动构建。
+- 手动触发 `dev` 的 GitHub build，并确认 Windows 测试、zip 与 setup artifact；在 Handoff 记录运行链接和结果。
 - 完成 F0 后实施 W0：验收 Windows 端既有远端文件双击—弹窗编辑—保存回传闭环，并仅修复发现的问题。
 - 完成 W0 后实施 W1：快捷命令同组“上移/下移”与向后兼容的持久化排序。
 - W2–W4（传输可靠性、隧道、效率与监控增强）保持 Proposed；未逐项确认前不得实施。
@@ -52,4 +52,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-复核 F0 diff 后提交并推送本地 `dev`，创建 `origin/dev`；随后以 `workflow_dispatch` 手动运行 `dev` 的 GitHub build，确认 Windows 测试、zip 与 setup artifact。验证通过后，在 Windows 工具链环境执行 W0，再实施 W1。W2–W4 必须先获得逐项确认。
+以 `workflow_dispatch` 手动运行 `dev` 的 GitHub build，确认 Windows 测试、zip 与 setup artifact，并将运行链接/结果写回 Handoff。验证通过后，在 Windows 工具链环境执行 W0，再实施 W1。W2–W4 必须先获得逐项确认。

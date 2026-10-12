@@ -34,6 +34,12 @@
 - `dev → main` 仅用于发布候选：要求本地验证完成、必要时的手动 `dev` 构建成功、验收记录完整，并经用户明确批准。合入 `main` 后由自动 CI 生成构建证据与产物。
 - 每个切片的固定顺序：同步 `dev` → 检查工作区 → 实施和测试 → 本地 Windows 构建/手工验收 → 更新文档 → 检查 diff → commit → push `dev`/主题分支。只在需要云端验证时手动触发 GitHub Actions；不等待每次 `dev` push 的完整构建。
 
+### GitHub SSH 连接
+
+- 本仓库的 `origin` 使用 GitHub SSH 443：`ssh://git@ssh.github.com:443/miozen/pixshell.git`。不要将它改回 HTTPS 以规避凭据问题。
+- 新环境先执行 `ssh -T -p 443 git@ssh.github.com` 验证身份，再核对 `git remote -v`；SSH 私钥和 agent 配置属于本机环境，不得写入仓库或文档。
+- SSH 认证失败时停止推送并记录阻塞；不得通过提交 token、私钥或修改未知全局凭据来绕过。
+
 ## Session Handoff Protocol
 
 在实质开发完成、阶段检查点或准备换会话/电脑时：检查 diff 和状态，运行相关验证，按实际进度更新 `docs/CURRENT_PLAN.md`，再更新 `docs/HANDOFF.md`。准确记录未提交工作、验证结果、阻塞项和下一动作。普通讨论或无实质状态变化时无需更新。

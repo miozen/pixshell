@@ -49,5 +49,5 @@
 - 状态：**Accepted**
 - 决策：`main` 仅作为发布分支；Windows 改造及后续功能切片完成后，必须经验证并推送到远程 `dev` 集成分支，不直接合并 `main`。`dev` 不自动运行完整 GitHub 构建，需要时通过手动触发构建；`main` push 自动运行构建。`dev → main` 需用户明确批准，合入后以 `main` CI 作为发布构建证据。
 - 理由：让多电脑/多会话接力有稳定集成点，同时避免每次开发提交消耗完整跨平台打包资源。
-- 约束：当前仓库只存在 `origin/main`，尚无 `origin/dev`；在 `dev` 被创建前不得以直接推送 `main` 替代。现有 CI 已支持手动触发，但尚未配置 `main` push 自动构建，F0 必须补齐。
+- 约束：`origin/dev` 已于 F0 创建；功能切片仍不得以直接推送 `main` 替代。CI 已支持手动触发，且 `main` push 自动构建已由 F0 补齐；`dev` 不得添加自动完整构建。
 - 依据：[AGENTS.md](../AGENTS.md)、[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)、[.github/workflows/build.yml](../.github/workflows/build.yml)。
