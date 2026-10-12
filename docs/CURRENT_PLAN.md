@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：先建立 F0 质量与交付基线，再实施 W0/W1。**
+**Windows FinalShell 工作流对齐：F0 Windows 质量与交付基线已完成，进入 W0 编辑器验收。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -16,15 +16,14 @@
 - 最近一轮代码工作集中完成 Agent 无头隔离、并发 SSH 复用、死会话自动重连和输出洪峰卡顿修复（见最近 Git 提交）。
 - 本轮已建立五份核心协作文档及 Session Start/Handoff 协议。
 - 已完成 Windows 与 FinalShell 工作流差异审查，并固化 Windows 对齐改造契约。
+- F0（Windows）：已建立 `origin/dev`、最小快捷命令测试、`main` 自动 CI / `dev` 手动 CI 策略与 Windows artifact 交付链。手动 `dev` run `38252736394` 和自动 `main` run `38253363885` 的 Windows job 均通过 Test、Publish、zip、Inno Setup 与 artifact 上传。
 
 ## In Progress
 
-- F0：`origin/dev` 已建立，最小快捷命令自动化测试及 CI 触发策略均已验证。手动 `dev` build `38252736394` 的 Windows job 已通过测试、self-contained publish、zip、Inno Setup 与 artifact 上传；待用户批准将 publish 修复合入 `main`，以验证最新 `main` 自动构建。
+- W0：在 Windows 实机安装 F0 artifact，按远端文本文件的双击—弹窗编辑—保存回传清单验收既有闭环；只修复验收中实际发现的问题。
 
 ## Remaining
 
-- 等待用户明确批准 `dev → main` 的发布前合并；不得直接推送或合并 `main`。合并后核对 `main` 自动 build 是否在最新修复上通过 Windows job。
-- 完成 F0 后实施 W0：验收 Windows 端既有远端文件双击—弹窗编辑—保存回传闭环，并仅修复发现的问题。
 - 完成 W0 后实施 W1：快捷命令同组“上移/下移”与向后兼容的持久化排序。
 - W2–W4（传输可靠性、隧道、效率与监控增强）保持 Proposed；未逐项确认前不得实施。
 - 作为独立后续事项评估并设计 macOS 内置 SSH/SFTP 的 host-key 验证统一策略；不得在未覆盖 OpenSSH 回退和两端行为前局部修改。
@@ -52,4 +51,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-请求用户批准将已验证的 `dev` 合入 `main`；合并后观察 `main` 自动 build 的 Windows job。macOS 包解析失败另立修复任务。Windows main 验证完成后，进入 W0 的手工验收；W2–W4 必须先获得逐项确认。
+在 Windows 实机下载并安装 main run `38253363885` 的 `PixShell-0.1.1-win-x64` artifact，连接一台可控 SSH/SFTP 主机，执行 W0 的双击文本文件—编辑—保存回传验收清单；仅在发现闭环缺陷时修复。macOS 包解析失败另立修复任务；W2–W4 必须先获得逐项确认。
