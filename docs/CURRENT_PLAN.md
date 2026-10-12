@@ -21,7 +21,7 @@
 
 ## In Progress
 
-- W1：实现快捷命令同组“上移/下移”、向后兼容的持久化排序与相应自动化回归测试。
+- W1：同组“上移/下移”、跨组移动追加到目标组末尾及持久化回归测试已实现；待 Windows UI 手工验收和手动 `dev` CI 构建验证。
 
 ## Remaining
 
@@ -45,6 +45,7 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 - 本轮文档：检查标准文件存在、相对链接有效、Git 状态与 Handoff 一致，并执行 `git diff --check`。
 - F0 静态复核：已核对测试项目、`win/build.ps1 -Action test` 入口和 CI 触发范围。WSL 的 .NET 9.0.121 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release`，3/3 通过；完整 WPF 构建仍须 Windows 工具链或 GitHub Windows runner。
+- W1：WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，4/4 通过；Windows WPF UI 尚待在实机与 GitHub Windows runner 验证。
 
 ## Blockers
 
@@ -52,4 +53,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-开始 W1：检查 `win/Store/QuickCommands.cs` 与 `win/CommandPanel.xaml.cs` 的现有顺序和 UI 操作，设计最小向后兼容排序表示，并补充覆盖重排/迁移/重启持久化的回归测试。W0 上传失败路径保留为暂缓验证；macOS 包解析失败另立修复任务；W2–W4 必须先获得逐项确认。
+复核 W1 diff 后提交并推送 `dev`；手动运行 GitHub `build`（ref `dev`）确认 Windows Test、Publish、zip/setup artifact，再在 Windows 实机验证快捷命令的上移、下移、跨组移动后目标组末尾及重启顺序。W0 上传失败路径保留为暂缓验证；macOS 包解析失败另立修复任务；W2–W4 必须先获得逐项确认。

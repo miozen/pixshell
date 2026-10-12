@@ -159,19 +159,62 @@ public sealed class QuickCommandStore
         Save();
     }
 
-    /// <summary>把一条命令移到某个分组（对齐 mac move）。</summary>
+    private static string GroupOf(QuickCommand command) =>
+        string.IsNullOrEmpty(command.Group) ? "默认" : command.Group;
+
+    /// <summary>把一条命令移到某个分组，并追加到目标组末尾。</summary>
     public void Move(string id, string group)
     {
-        var c = Commands.FirstOrDefault(x => x.Id == id);
-        if (c == null) return;
-        c.Group = string.IsNullOrEmpty(group) ? "默认" : group;
+        var sourceIndex = Commands.FindIndex(x => x.Id == id);
+        if (sourceIndex < 0) return;
+
+        var command = Commands[sourceIndex];
+        var targetGroup = string.IsNullOrEmpty(group) ? "默认" : group;
+        if (GroupOf(command) == targetGroup) return;
+
+        Commands.RemoveAt(sourceIndex);
+        command.Group = targetGroup;
+        var targetTail = Commands.FindLastIndex(x => GroupOf(x) == targetGroup);
+        Commands.Insert(targetTail < 0 ? Commands.Count : targetTail + 1, command);
         Save();
+    }
+
+    public bool CanMoveUp(string id) => FindNeighborIndex(id, -1) >= 0;
+
+    public bool CanMoveDown(string id) => FindNeighborIndex(id, 1) >= 0;
+
+    /// <summary>仅在同一分组内交换相邻命令，JSON 数组顺序即为持久化顺序。</summary>
+    public bool MoveUp(string id) => MoveWithinGroup(id, -1);
+
+    /// <summary>仅在同一分组内交换相邻命令，JSON 数组顺序即为持久化顺序。</summary>
+    public bool MoveDown(string id) => MoveWithinGroup(id, 1);
+
+    private bool MoveWithinGroup(string id, int direction)
+    {
+        var index = Commands.FindIndex(x => x.Id == id);
+        var neighbor = FindNeighborIndex(id, direction);
+        if (index < 0 || neighbor < 0) return false;
+
+        (Commands[index], Commands[neighbor]) = (Commands[neighbor], Commands[index]);
+        Save();
+        return true;
+    }
+
+    private int FindNeighborIndex(string id, int direction)
+    {
+        var index = Commands.FindIndex(x => x.Id == id);
+        if (index < 0) return -1;
+
+        var group = GroupOf(Commands[index]);
+        for (var i = index + direction; i >= 0 && i < Commands.Count; i += direction)
+            if (GroupOf(Commands[i]) == group) return i;
+        return -1;
     }
 
     public List<QuickCommand> List(string? group) =>
         string.IsNullOrEmpty(group)
             ? Commands
-            : Commands.Where(c => (string.IsNullOrEmpty(c.Group) ? "默认" : c.Group) == group).ToList();
+            : Commands.Where(c => GroupOf(c) == group).ToList();
 
     public void Upsert(QuickCommand c)
     {

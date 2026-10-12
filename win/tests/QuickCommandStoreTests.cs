@@ -27,19 +27,40 @@ public sealed class QuickCommandStoreTests : IDisposable
     }
 
     [Fact]
-    public void MoveKeepsTheCommandAndPersistsItsNewGroup()
+    public void MoveAppendsToTheTargetGroupAndPersists()
     {
         var store = new QuickCommandStore(_dir);
         store.Commands.Clear();
         store.Upsert(new QuickCommand { Id = "one", Name = "One", Group = "source", Command = "echo one" });
         store.Upsert(new QuickCommand { Id = "two", Name = "Two", Group = "source", Command = "echo two" });
+        store.Upsert(new QuickCommand { Id = "existing", Name = "Existing", Group = "target", Command = "echo existing" });
 
         store.Move("one", "target");
 
         var reloaded = new QuickCommandStore(_dir);
         Assert.Equal("target", reloaded.Commands.Single(c => c.Id == "one").Group);
         Assert.Equal(new[] { "two" }, reloaded.List("source").Select(c => c.Id));
-        Assert.Equal(new[] { "one" }, reloaded.List("target").Select(c => c.Id));
+        Assert.Equal(new[] { "existing", "one" }, reloaded.List("target").Select(c => c.Id));
+    }
+
+    [Fact]
+    public void ReordersOnlyWithinTheSameGroupAndPersists()
+    {
+        var store = new QuickCommandStore(_dir);
+        store.Commands.Clear();
+        store.Upsert(new QuickCommand { Id = "first", Name = "First", Group = "ops", Command = "first" });
+        store.Upsert(new QuickCommand { Id = "other", Name = "Other", Group = "other", Command = "other" });
+        store.Upsert(new QuickCommand { Id = "second", Name = "Second", Group = "ops", Command = "second" });
+        store.Upsert(new QuickCommand { Id = "third", Name = "Third", Group = "ops", Command = "third" });
+
+        Assert.False(store.CanMoveUp("first"));
+        Assert.True(store.MoveUp("third"));
+        Assert.True(store.MoveDown("first"));
+
+        var reloaded = new QuickCommandStore(_dir);
+        Assert.Equal(new[] { "third", "first", "second" }, reloaded.List("ops").Select(c => c.Id));
+        Assert.Equal(new[] { "other" }, reloaded.List("other").Select(c => c.Id));
+        Assert.False(reloaded.MoveDown("second"));
     }
 
     [Fact]

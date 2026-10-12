@@ -199,6 +199,13 @@ public partial class CommandPanel : UserControl
     {
         var m = new ContextMenu();
         m.Items.Add(MenuItem("添加命令…", () => EditCommand(null)));
+        var moveUp = MenuItem("上移", () => { if (CommandStore.MoveUp(id)) ReloadChips(); });
+        moveUp.IsEnabled = CommandStore.CanMoveUp(id);
+        m.Items.Add(moveUp);
+        var moveDown = MenuItem("下移", () => { if (CommandStore.MoveDown(id)) ReloadChips(); });
+        moveDown.IsEnabled = CommandStore.CanMoveDown(id);
+        m.Items.Add(moveDown);
+        m.Items.Add(new Separator());
         m.Items.Add(MenuItem("复制命令", () => CopyCommandText(id)));   // = 复制命令文本到剪贴板，不是复制一条副本
         m.Items.Add(MenuItem("编辑", () => EditCommand(id)));
         m.Items.Add(MenuItem("删除", () => DeleteCommand(id)));
