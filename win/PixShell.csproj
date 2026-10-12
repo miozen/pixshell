@@ -32,7 +32,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 排除 LSP 验证测试工程（lsptest/rawdump），避免被默认编译扫入 -->
+    <!-- 排除独立测试工程，避免被默认源码通配符扫入生产 WPF 应用。 -->
+    <Compile Remove="tests\**\*.cs" />
+    <!-- 排除 LSP 验证测试工程（lsptest/rawdump），避免被默认编译扫入。 -->
     <Compile Remove="lsptest\**\*.cs" />
   </ItemGroup>
 </Project>
