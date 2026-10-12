@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('build', 'publish', 'run', 'clean')]
+    [ValidateSet('build', 'publish', 'run', 'test', 'clean')]
     [string]$Action = 'publish',
 
     [ValidateSet('Debug', 'Release')]
@@ -23,6 +23,7 @@ Set-Location $scriptDir
 
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 $project = Join-Path $scriptDir 'PixShell.csproj'
+$testProject = Join-Path $scriptDir 'tests\PixShell.Tests.csproj'
 $framework = 'net9.0-windows'
 
 function Fail($message) {
@@ -145,6 +146,16 @@ try {
     Get-Process -Name 'PixShell' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 } catch {
     Write-Host '[WARN] Could not stop an existing PixShell process; continuing.' -ForegroundColor Yellow
+}
+
+if ($Action -eq 'test') {
+    if (-not (Test-Path -LiteralPath $testProject)) {
+        Fail "Test project not found: $testProject"
+    }
+    Invoke-Dotnet restore $testProject
+    Invoke-Dotnet test $testProject -c $Configuration --no-restore --verbosity minimal -nologo
+    Write-Host '[OK] Tests passed.' -ForegroundColor Green
+    exit 0
 }
 
 Invoke-Dotnet restore $project -r $Runtime

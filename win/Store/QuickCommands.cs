@@ -50,10 +50,15 @@ public sealed class QuickCommandStore
     /// （对齐 mac QuickCommandStore.emptyGroups / quick-command-groups.json）。</summary>
     public List<string> EmptyGroups { get; private set; } = new();
 
-    public QuickCommandStore()
+    /// <summary>
+    /// 默认使用应用数据目录；测试可传入独立目录，避免读取或改写用户实际快捷命令。
+    /// </summary>
+    public QuickCommandStore(string? appDir = null)
     {
-        _path = Path.Combine(HostStore.AppDir, "quick-commands.json");
-        _groupsPath = Path.Combine(HostStore.AppDir, "quick-command-groups.json");
+        var dir = string.IsNullOrWhiteSpace(appDir) ? HostStore.AppDir : appDir;
+        Directory.CreateDirectory(dir);
+        _path = Path.Combine(dir, "quick-commands.json");
+        _groupsPath = Path.Combine(dir, "quick-command-groups.json");
         Load();
     }
 
