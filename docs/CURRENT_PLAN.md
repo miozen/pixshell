@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 Windows 质量与交付基线已完成，进入 W0 编辑器验收。**
+**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；下一切片为 W1 快捷命令排序。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -17,14 +17,15 @@
 - 本轮已建立五份核心协作文档及 Session Start/Handoff 协议。
 - 已完成 Windows 与 FinalShell 工作流差异审查，并固化 Windows 对齐改造契约。
 - F0（Windows）：已建立 `origin/dev`、最小快捷命令测试、`main` 自动 CI / `dev` 手动 CI 策略与 Windows artifact 交付链。手动 `dev` run `38252736394` 和自动 `main` run `38253363885` 的 Windows job 均通过 Test、Publish、zip、Inno Setup 与 artifact 上传。
+- W0：Windows 实机已通过目录双击、文本文件双击打开编辑窗口、编辑保存回传与超 4 MiB 文件明确提示。上传失败时保留脏内容因未构造安全失败条件，按用户指示暂不测试；不得记录为通过。
 
 ## In Progress
 
-- W0：在 Windows 实机安装 F0 artifact，按远端文本文件的双击—弹窗编辑—保存回传清单验收既有闭环；只修复验收中实际发现的问题。
+- W1：实现快捷命令同组“上移/下移”、向后兼容的持久化排序与相应自动化回归测试。
 
 ## Remaining
 
-- 完成 W0 后实施 W1：快捷命令同组“上移/下移”与向后兼容的持久化排序。
+- 在适当的可控环境补测 W0 的“上传失败保留编辑内容”路径；该项暂缓不等于验收通过。
 - W2–W4（传输可靠性、隧道、效率与监控增强）保持 Proposed；未逐项确认前不得实施。
 - 作为独立后续事项评估并设计 macOS 内置 SSH/SFTP 的 host-key 验证统一策略；不得在未覆盖 OpenSSH 回退和两端行为前局部修改。
 - 在后续变更中逐步扩大最小自动化测试，优先桥路由、持久化和 SSH 状态机等非 UI 核心逻辑。
@@ -51,4 +52,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-在 Windows 实机下载并安装 main run `38253363885` 的 `PixShell-0.1.1-win-x64` artifact，连接一台可控 SSH/SFTP 主机，执行 W0 的双击文本文件—编辑—保存回传验收清单；仅在发现闭环缺陷时修复。macOS 包解析失败另立修复任务；W2–W4 必须先获得逐项确认。
+开始 W1：检查 `win/Store/QuickCommands.cs` 与 `win/CommandPanel.xaml.cs` 的现有顺序和 UI 操作，设计最小向后兼容排序表示，并补充覆盖重排/迁移/重启持久化的回归测试。W0 上传失败路径保留为暂缓验证；macOS 包解析失败另立修复任务；W2–W4 必须先获得逐项确认。
