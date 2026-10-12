@@ -19,12 +19,11 @@
 
 ## In Progress
 
-- F0：`origin/dev` 已建立，最小快捷命令自动化测试及 CI 触发策略已提交并推送到 `dev`；待恢复 GitHub workflow 登记、验证 `dev` Windows 产物，并经用户批准后以 PR 合入 `main` 使 `main` 自动 CI 生效。
+- F0：`origin/dev` 已建立，最小快捷命令自动化测试及 CI 触发策略均已验证。手动 `dev` build `38252736394` 的 Windows job 已通过测试、self-contained publish、zip、Inno Setup 与 artifact 上传；待用户批准将 publish 修复合入 `main`，以验证最新 `main` 自动构建。
 
 ## Remaining
 
-- 手动触发 `dev` 的 GitHub build，并确认 Windows 测试、zip 与 setup artifact；在 Handoff 记录运行链接和结果。
-- F0 云端验证通过后，等待用户明确批准 `dev → main` 的 PR；不得直接推送或合并 `main`。
+- 等待用户明确批准 `dev → main` 的发布前合并；不得直接推送或合并 `main`。合并后核对 `main` 自动 build 是否在最新修复上通过 Windows job。
 - 完成 F0 后实施 W0：验收 Windows 端既有远端文件双击—弹窗编辑—保存回传闭环，并仅修复发现的问题。
 - 完成 W0 后实施 W1：快捷命令同组“上移/下移”与向后兼容的持久化排序。
 - W2–W4（传输可靠性、隧道、效率与监控增强）保持 Proposed；未逐项确认前不得实施。
@@ -49,8 +48,8 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Blockers
 
-- Linux 环境缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能执行完整 Windows 应用构建。当前仓库是 `hehudieyiqi/pixshell` 的 fork：上游 Actions API 登记 4 个 active workflow，而本 fork 在默认分支含有同样的 workflow 文件时仍返回 0；须先完成 fork 的 Actions 启用/初始化。
+- Linux 环境缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能执行完整 Windows 应用构建。Windows F0 已由 GitHub Windows runner 验证；macOS 两个 job 在 Swift 包解析阶段失败，须作为独立跨平台 CI 问题处理。
 
 ## Next Action
 
-在 fork 的 Actions 页面启用 workflows（而非只设置 Actions permissions）；`build` 出现后手动以 ref `dev` 运行，确认 Windows 测试、zip 与 setup artifact，并将运行链接/结果写回 Handoff。若启用后仍为 0，需用户明确批准 `dev → main` PR 以让 GitHub 重新索引默认分支；不得直接推送 `main`。验证通过后，在 Windows 工具链环境执行 W0，再实施 W1。W2–W4 必须先获得逐项确认。
+请求用户批准将已验证的 `dev` 合入 `main`；合并后观察 `main` 自动 build 的 Windows job。macOS 包解析失败另立修复任务。Windows main 验证完成后，进入 W0 的手工验收；W2–W4 必须先获得逐项确认。
