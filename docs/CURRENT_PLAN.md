@@ -19,11 +19,12 @@
 
 ## In Progress
 
-- F0：`origin/dev` 已建立，最小快捷命令自动化测试、`main` 自动 CI 与 `dev` 手动 CI 触发策略均已提交并推送；待以 GitHub Windows runner 验证测试和安装产物。
+- F0：`origin/dev` 已建立，最小快捷命令自动化测试及 CI 触发策略已提交并推送到 `dev`；待恢复 GitHub workflow 登记、验证 `dev` Windows 产物，并经用户批准后以 PR 合入 `main` 使 `main` 自动 CI 生效。
 
 ## Remaining
 
 - 手动触发 `dev` 的 GitHub build，并确认 Windows 测试、zip 与 setup artifact；在 Handoff 记录运行链接和结果。
+- F0 云端验证通过后，等待用户明确批准 `dev → main` 的 PR；不得直接推送或合并 `main`。
 - 完成 F0 后实施 W0：验收 Windows 端既有远端文件双击—弹窗编辑—保存回传闭环，并仅修复发现的问题。
 - 完成 W0 后实施 W1：快捷命令同组“上移/下移”与向后兼容的持久化排序。
 - W2–W4（传输可靠性、隧道、效率与监控增强）保持 Proposed；未逐项确认前不得实施。
