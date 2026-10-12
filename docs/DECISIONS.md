@@ -1,0 +1,53 @@
+# PixShell 决策台账
+
+状态含义：**Proposed** 待确认，**Accepted** 已确认并应遵守，**Superseded** 已被后续决策替代。这里记录稳定且影响开发方式的决策；实现细节以引用的源码或详细文档为准。
+
+## D-001：Repository-driven Handoff 核心文档
+
+- 状态：**Accepted**（2026-10-12）
+- 决策：以 `AGENTS.md`、`docs/ARCHITECTURE.md`、`docs/DECISIONS.md`、`docs/CURRENT_PLAN.md`、`docs/HANDOFF.md` 作为 AI 协作的统一恢复入口；Git 是跨机器同步的唯一可靠事实来源。
+- 理由：支持新会话、上下文压缩和多电脑接力，避免依赖聊天历史或重复审计。
+- 依据：[AGENTS.md](../AGENTS.md)。
+
+## D-002：双原生单仓库
+
+- 状态：**Accepted**
+- 决策：macOS 使用 AppKit/SwiftTerm/SwiftNIO，Windows 使用 WPF/WebView2/xterm.js/SSH.NET；两端独立实现但对齐核心模型、布局和桥契约。
+- 理由：保留平台原生集成和 SSH 实现选择，同时维持用户工作流一致。
+- 依据：[mac/Package.swift](../mac/Package.swift)、[win/PixShell.csproj](../win/PixShell.csproj)、[mac/docs/LAYOUT-PARITY.md](../mac/docs/LAYOUT-PARITY.md)。
+
+## D-003：本地优先、无服务端数据库
+
+- 状态：**Accepted**
+- 决策：主机与应用数据保存在本机；密码不进入 hosts JSON，使用平台安全存储保护。WebDAV 仅是可选备份渠道。
+- 理由：SSH 客户端需要离线可用，并减少集中式服务依赖与敏感数据暴露面。
+- 依据：[mac/Sources/PixShell/Store/HostStore.swift](../mac/Sources/PixShell/Store/HostStore.swift)、[mac/Sources/PixShell/Store/Keychain.swift](../mac/Sources/PixShell/Store/Keychain.swift)、[win/Storage.cs](../win/Storage.cs)。
+
+## D-004：本机 Agent 桥与 GUI 会话隔离
+
+- 状态：**Accepted**
+- 决策：CLI/MCP 经 token 保护的回环 HTTP 桥调用无头会话池；不得复用、抢占或在 GUI 中隐式创建用户标签会话。
+- 理由：自动化并发、断线重连与用户交互彼此隔离，避免 Agent 影响可见工作区。
+- 依据：[mac/Sources/PixShell/App/AppDelegate+Bridge.swift](../mac/Sources/PixShell/App/AppDelegate+Bridge.swift)、[mac/Sources/PixShell/Bridge/HeadlessBridgeHost.swift](../mac/Sources/PixShell/Bridge/HeadlessBridgeHost.swift)、[win/Bridge/HeadlessBridgeHost.cs](../win/Bridge/HeadlessBridgeHost.cs)。
+
+## D-005：兼容优先的 SSH 回退
+
+- 状态：**Accepted**
+- 决策：常规交互优先使用内置 SSH 实现；遇到算法兼容、私钥或 FIDO2 限制时，允许使用系统 OpenSSH 回退。SFTP 同样可采用回退实现。
+- 理由：覆盖老旧服务器、网络设备和硬件安全密钥场景。
+- 依据：[mac/Sources/PixShell/SSH/OpenSSHSession.swift](../mac/Sources/PixShell/SSH/OpenSSHSession.swift)、[mac/Sources/PixShell/App/AppDelegate+Sessions.swift](../mac/Sources/PixShell/App/AppDelegate+Sessions.swift)、[win/TerminalSession.cs](../win/TerminalSession.cs)。
+
+## D-006：Windows FinalShell 工作流对齐
+
+- 状态：**Accepted**（仅范围原则）
+- 决策：借鉴 FinalShell 的高频工作流，仅改造 Windows 端；优先复用已存在的远端编辑器和快捷命令模块，不复制第三方代码、资源或品牌，不为功能表对齐进行大规模重构。
+- 理由：用户明确要求 Windows 端改造，目标是改善日常运维效率而非替换现有架构。
+- 依据：[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)。具体 W2–W4 功能仍为 Proposed，须逐项确认。
+
+## D-007：dev 集成分支与可安装 Windows 交付门
+
+- 状态：**Accepted**
+- 决策：`main` 仅作为发布分支；Windows 改造及后续功能切片完成后，必须经验证并推送到远程 `dev` 集成分支，不直接合并 `main`。`dev` 不自动运行完整 GitHub 构建，需要时通过手动触发构建；`main` push 自动运行构建。`dev → main` 需用户明确批准，合入后以 `main` CI 作为发布构建证据。
+- 理由：让多电脑/多会话接力有稳定集成点，同时避免每次开发提交消耗完整跨平台打包资源。
+- 约束：当前仓库只存在 `origin/main`，尚无 `origin/dev`；在 `dev` 被创建前不得以直接推送 `main` 替代。现有 CI 已支持手动触发，但尚未配置 `main` push 自动构建，F0 必须补齐。
+- 依据：[AGENTS.md](../AGENTS.md)、[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)、[.github/workflows/build.yml](../.github/workflows/build.yml)。

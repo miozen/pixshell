@@ -1,0 +1,11 @@
+# Generated build and IDE output
+/mac/.build/
+/mac/dist/
+/win/bin/
+/win/obj/
+/win/publish/
+/win/dist/
+/.vs/
+*.user
+*.suo
+.DS_Store
