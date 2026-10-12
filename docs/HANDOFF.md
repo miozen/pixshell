@@ -1,15 +1,15 @@
 # 开发接力状态
 
-- **Last Updated**: 2026-10-12 (首次 main CI 已运行；Windows publish 修复待 dev 验证)
-- **Current Branch**: `main`（跟踪 `origin/main`；修复将转入 `dev`）
-- **HEAD / Last Commit**: `8ee9223` — `merge: establish F0 delivery baseline`（已推送 `main`）
-- **Working Tree**: **DIRTY** — `win/PixShell.csproj` 和本计划/Handoff 更新待转入 `dev` 提交。
-- **Current Phase**: Windows FinalShell 工作流对齐：F0 的首次 main CI 已触发，Windows 测试通过但 publish 失败；修复待 dev 手动 CI 验证；随后 W0/W1；W2–W4 为 Proposed。
-- **Current Task**: 将生产项目排除 `tests/**` 的修复推送到 `dev`，并手动验证 Windows publish/artifact。
-- **Last Completed**: 已完成 `dev → main` 的用户批准合并，恢复 fork Actions workflow 登记；自动 build run `38252076365` 已启动。Windows `dotnet test` 通过；publish 发现测试源文件被生产项目默认通配符编译，已在本地修复。
-- **Uncommitted Work**: `win/PixShell.csproj`、`docs/CURRENT_PLAN.md`、`docs/HANDOFF.md`。
-- **Validation Performed**: `main` 已推送且工作流已登记 4 项。CI run `38252076365`：Windows restore/test 成功，publish 失败；两项 macOS job 在 Resolve Swift packages 失败。WSL .NET SDK 9.0.121 已重新运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`：3/3 通过；`git diff --check` 通过。
-- **Validation Pending**: 将 Windows publish 修复推送到 `dev` 后，手动触发 `build`（ref `dev`）验证 Windows publish、zip/setup artifact；完整 WPF Windows 构建；macOS Swift package 解析失败的独立诊断；后续 W0 手工验收和 W1 专属验证。
-- **Known Issues / Blockers**: `main` 的首次 CI 已恢复 fork Actions，但 run `38252076365` 整体失败：Windows publish 受 `tests/**` 被错误编入生产项目影响，修复尚未在 CI 验证；macOS arm64/x64 均在 Swift 包解析阶段失败。Linux SDK 缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能构建完整 Windows 应用。`gh` CLI 的 HTTPS API token 已失效，不能从此环境使用 `gh workflow run`；Git SSH 443 推送正常。README/部分 CI 默认版本滞后；macOS 内置 NIO SSH/SFTP 当前接受所有主机密钥。W2–W4 未获逐项确认，不得实施。
-- **Exact Next Action**: 切换到 `dev`，提交并推送 `win/PixShell.csproj` 的 `tests/**` 编译排除修复；随后在 GitHub Actions 手动运行 `build`（ref `dev`），确认 Windows Test、Publish、zip 和 setup artifact。通过后再请求用户批准下一次 `dev → main` 合并。
-- **Cross-machine Ready**: **NO** — 当前修复尚未提交/推送到 `dev`。
+- **Last Updated**: 2026-10-12 (F0 Windows 云端构建与 artifact 已验证)
+- **Current Branch**: `dev`（跟踪 `origin/dev`）
+- **HEAD / Last Commit**: `9fd7441` — `fix: exclude test sources from Windows publish`（已推送 `dev`）
+- **Working Tree**: **CLEAN** — 本次验证状态更新提交并推送后应无未提交修改。
+- **Current Phase**: Windows FinalShell 工作流对齐：F0 的 Windows 质量与交付基线已验证，待用户批准合入最新修复到 `main`；随后 W0/W1；W2–W4 为 Proposed。
+- **Current Task**: 请求用户批准已验证的 `dev → main` 合并，并观察最新 `main` 自动 build 的 Windows job。
+- **Last Completed**: 手动 `dev` build run `38252736394` 已在 `9fd7441` 通过 Windows Restore、Test、self-contained Publish、资源检查、zip、Inno Setup 和 artifact 上传。artifact：`PixShell-0.1.1-win-x64`（117,208,779 bytes，SHA-256 `f6af606805adf81939a0d805c0246ff10ea9340004f0b8067502491f230c2bf2`）。
+- **Uncommitted Work**: `docs/CURRENT_PLAN.md`、`docs/HANDOFF.md` 的本次验证状态更新。
+- **Validation Performed**: WSL .NET SDK 9.0.121 已运行快捷命令测试 3/3 通过。GitHub run `38252736394`（workflow_dispatch, ref `dev`, `9fd7441`）的 Windows job 成功；artifact API 已确认 1 个有效 artifact，未过期。`git diff --check` 通过。
+- **Validation Pending**: 用户批准后将 `dev` 合入 `main`，确认 `main` 自动 build 在最新修复上的 Windows job；完整 WPF Windows 本机构建；macOS Swift package 解析失败的独立诊断；后续 W0 手工验收和 W1 专属验证。
+- **Known Issues / Blockers**: run `38252736394` 的整体结论为 failure，仅因为 macOS arm64/x64 均在 Resolve Swift packages 失败；Windows job 为 success。Linux SDK 缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能构建完整 Windows 应用。`gh` CLI 的 HTTPS API token 已失效，不能从此环境使用 `gh workflow run`；Git SSH 443 推送正常。README/部分 CI 默认版本滞后；macOS 内置 NIO SSH/SFTP 当前接受所有主机密钥。W2–W4 未获逐项确认，不得实施。
+- **Exact Next Action**: 等待用户明确批准将 `dev`（含 `9fd7441`）合入 `main`；批准后创建合并提交并推送，随后确认自动 `main` build 的 Windows job。若 Windows 成功，F0 的 Windows 交付基线完成，转入 W0；macOS package 失败另立任务。
+- **Cross-machine Ready**: **YES** — 本次状态更新提交并推送后，接收端可从 `origin/dev` 的 Exact Next Action 恢复。
