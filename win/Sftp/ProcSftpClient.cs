@@ -199,7 +199,7 @@ public class ProcSftpClient : IDisposable
         lock (_lock)
         {
             var id = ++_reqId;
-            SendPacket(3, BuildPayload(id, pw => { WriteSFTPString(pw, remotePath); pw.WriteU32BE(remoteOffset == 0 ? 0x1A : 0x0A); pw.WriteU32BE(4); pw.WriteU32BE(0x1A4); }));
+            SendPacket(3, BuildPayload(id, pw => { WriteSFTPString(pw, remotePath); pw.WriteU32BE(remoteOffset == 0 ? 0x1Au : 0x0Au); pw.WriteU32BE(4); pw.WriteU32BE(0x1A4); }));
             var handle = SliceBytes(ReadPayload(), 5);
             var buf = new byte[32768]; long offset = remoteOffset; int n;
             while ((n = localStream.Read(buf, 0, buf.Length)) > 0)

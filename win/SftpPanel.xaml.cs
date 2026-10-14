@@ -473,7 +473,7 @@ public partial class SftpPanel : UserControl
     private string? ResolveUploadDestination(IRemoteFs fs, string remote)
     {
         if (!fs.Exists(remote)) return remote;
-        var choice = MessageBox.Show(this, $"远端已存在完整文件：{Path.GetFileName(remote)}\n\n是 = 覆盖\n否 = 另存为\n取消 = 跳过此文件", "上传冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        var choice = MessageBox.Show(Window.GetWindow(this)!, $"远端已存在完整文件：{Path.GetFileName(remote)}\n\n是 = 覆盖\n否 = 另存为\n取消 = 跳过此文件", "上传冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
         if (choice == MessageBoxResult.Cancel) return null;
         if (choice == MessageBoxResult.Yes) return remote;
         var slash = remote.LastIndexOf('/'); var dir = slash <= 0 ? "/" : remote[..slash];
@@ -615,7 +615,7 @@ public partial class SftpPanel : UserControl
     {
         var local = Path.Combine(destDir, name);
         if (!File.Exists(local)) return local;
-        var choice = MessageBox.Show(this,
+        var choice = MessageBox.Show(Window.GetWindow(this)!,
             $"本地已存在完整文件：{name}\n\n是 = 覆盖\n否 = 另存为\n取消 = 跳过此文件",
             "下载冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
         if (choice == MessageBoxResult.Cancel) return null;
@@ -749,7 +749,7 @@ public partial class SftpPanel : UserControl
             var target = Path.Combine(destination, Path.GetFileName(source));
             if (File.Exists(target) || Directory.Exists(target))
             {
-                var choice = MessageBox.Show(this, $"本地已存在：{Path.GetFileName(source)}\n\n是 = 覆盖\n否 = 跳过\n取消 = 取消整个打包下载", "解压冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                var choice = MessageBox.Show(Window.GetWindow(this)!, $"本地已存在：{Path.GetFileName(source)}\n\n是 = 覆盖\n否 = 跳过\n取消 = 取消整个打包下载", "解压冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
                 if (choice == MessageBoxResult.Cancel) return false;
                 if (choice == MessageBoxResult.No) continue;
                 if (Directory.Exists(target)) Directory.Delete(target, recursive: true); else File.Delete(target);
