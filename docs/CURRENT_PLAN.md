@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1 与 W4a 已完成实现；W4b 命令建议正在实施。**
+**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1、W4a 与 W4b 已完成实现；下一项待确认能力为 W4c 批量主机任务。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -55,4 +55,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-复核 W4b diff 并形成 `dev` 检查点；整个已确认 Windows W 路线完成后再集中执行 W0/W1/W4a/W4b 的自动化、Windows UI、发布和 CI 验收；W4c 在另行确认批量任务语义前不得开始。
+等待确认 W4c 的目标选择、并发度、失败策略和汇总展示，再开始设计；整个已确认 Windows W 路线完成后再集中执行 W0/W1/W4a/W4b 的自动化、Windows UI、发布和 CI 验收。
