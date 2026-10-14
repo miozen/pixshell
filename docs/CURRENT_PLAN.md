@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1 已完成；W4a（监控时间窗与网卡选择）正在实施。**
+**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1 与 W4a 已完成实现；下一切片为 W4b 命令建议。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -22,7 +22,7 @@
 ## In Progress
 
 - W1：同组“上移/下移”、跨组移动追加到目标组末尾、显式 `sortOrder` 持久化和同组拖拽排序均已实现；用户要求后续集中验证，待测项已记入对齐契约。
-- W4a：已确认并实现监控图表时间窗与远端网卡选择；待静态复核和后续集中验证。
+- W4a：监控图表时间窗与远端网卡选择已实现并形成未验证的 `dev` 检查点；待整个 Windows W 路线完成后集中验证。
 
 ## Remaining
 
@@ -54,4 +54,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-复核 W4a diff 并形成 `dev` 检查点；整个已确认 Windows W 路线完成后再集中执行 W0/W1/W4a 的自动化、Windows UI、发布和 CI 验收。下一功能切片为 W4b 命令建议；W4c 在另行确认批量任务语义前不得开始。
+实施 W4b 命令建议：先复用命令历史、快捷命令与远端路径补全的现有入口，保持不发送、不自动执行的建议语义。整个已确认 Windows W 路线完成后再集中执行 W0/W1/W4a 的自动化、Windows UI、发布和 CI 验收；W4c 在另行确认批量任务语义前不得开始。
