@@ -6,7 +6,7 @@
 - **Working Tree**: **CLEAN** — 本状态提交推送后无未提交工作。
 - **Current Phase**: Windows FinalShell 工作流对齐：F0 完成；W0 主路径验收通过、失败路径暂缓；W1/W2a/W2b/W4a–W4c 实现完成、集中验证延后；W2c/W3 待确认。
 - **Current Task**: 等待用户确认 W2c 打包传输语义，或确认开始集中测试。
-- **Last Completed**: W2a 已完成并形成 `dev` 检查点：直传上传/下载进入统一内存任务清单并显示进度、方向、失败详情和重试入口；直传下载先写 `.pixshell.part`，仅成功关闭后替换最终文件；本地同名最终文件要求用户选择覆盖、另存为或跳过。打包传输、取消与断点续传均未在本切片实现。
+- **Last Completed**: W2b 已完成并形成 `dev` 检查点：单文件直传在 SSH.NET/系统 SFTP 后端可取消并从本次运行内保留的临时文件续传；上传先写远端临时文件，成功后才改名到最终路径；SCP 保持可重新开始但不伪造取消/续传能力。打包传输仍未进入本切片。
 - **Uncommitted Work**: `win/Store/TransferTasks.cs`、`win/UI/ToolsPanel.xaml.cs`、`win/Sftp/RemoteFs/IRemoteFs.cs`、`win/Sftp/RemoteFs/SftpAdapter.cs`、`win/Sftp/RemoteFs/ProcAdapter.cs`、`win/Sftp/RemoteFs/ScpAdapter.cs`、`win/Sftp/ProcSftpClient.cs`、`win/SftpPanel.xaml.cs`，以及本接力文档。
 - **Validation Performed**: W1 第一部分在 WSL .NET SDK 9.0.121 曾运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`：4/4 通过。W4a/W4b/W4c/W2a 已执行 `git diff --check` 通过；按用户约定，W2a 及 W4a–W4c 尚未执行自动化、Windows UI、发布或 CI 验证。
 - **Validation Pending**: W1 自动化（含 `sortOrder`、拖拽重排和跨组拒绝）、W2a 传输任务/进度/重试、下载 `.part` 成功替换与失败保留、同名覆盖/另存为/跳过、W4a 图表窗口/网卡选择、W4b 建议排序/无执行回填、W4c 目标选择/并发/失败继续/结果截断、Windows WPF 编译/发布、Windows 实机交互、按需手动 GitHub build（ref `dev`）的 Windows Test/Publish/artifact；W4 清单见 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)。W0 上传失败保留脏内容补测；macOS Swift package 解析失败独立诊断。
