@@ -2,7 +2,7 @@
 
 - **Last Updated**: 2026-10-14 (W2c 已形成未验证 `dev` 检查点；W2 路线实现完成)
 - **Current Branch**: `dev`（跟踪 `origin/dev`）
-- **HEAD / Last Commit**: W2a 代码检查点为 `e708ffd` — `feat: add Windows transfer task baseline`；本状态提交随该检查点推送到 `origin/dev`。`main` 当前为已验证的合并提交 `df26bfc`。
+- **HEAD / Last Commit**: W2c 代码检查点为 `9d353bb` — `feat: harden Windows packed transfers`；本状态提交随该检查点推送到 `origin/dev`。`main` 当前为已验证的合并提交 `df26bfc`。
 - **Working Tree**: **CLEAN** — 本状态提交推送后无未提交工作。
 - **Current Phase**: Windows FinalShell 工作流对齐：F0 完成；W0 主路径验收通过、失败路径暂缓；W1/W2a–W2c/W4a–W4c 实现完成，等待集中验证；W3 待确认。
 - **Current Task**: 按用户约定对完成的 Windows W 路线进行集中验证。
