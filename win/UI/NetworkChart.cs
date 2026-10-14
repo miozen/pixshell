@@ -7,9 +7,8 @@ namespace PixShell.UI;
 
 public class NetworkChart : FrameworkElement
 {
-    private const int Cap = 60;
-    private readonly double[] _rxRing = new double[Cap];
-    private readonly double[] _txRing = new double[Cap];
+    private double[] _rxRing = new double[60];
+    private double[] _txRing = new double[60];
     private int _count;
     private int _head;
 
@@ -45,8 +44,8 @@ public class NetworkChart : FrameworkElement
     {
         _rxRing[_head] = rx;
         _txRing[_head] = tx;
-        _head = (_head + 1) % Cap;
-        if (_count < Cap) _count++;
+        _head = (_head + 1) % _rxRing.Length;
+        if (_count < _rxRing.Length) _count++;
         InvalidateVisual();
     }
 
@@ -57,16 +56,26 @@ public class NetworkChart : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>调整图表保留的采样数。改变时间窗时清空旧样本，避免混合不同窗口的比例。</summary>
+    public void SetCapacity(int capacity)
+    {
+        capacity = Math.Clamp(capacity, 2, 300);
+        if (capacity == _rxRing.Length) return;
+        _rxRing = new double[capacity];
+        _txRing = new double[capacity];
+        Clear();
+    }
+
     private double RxAt(int logical)
     {
-        var start = (_count < Cap) ? 0 : _head;
-        return _rxRing[(start + logical) % Cap];
+        var start = (_count < _rxRing.Length) ? 0 : _head;
+        return _rxRing[(start + logical) % _rxRing.Length];
     }
 
     private double TxAt(int logical)
     {
-        var start = (_count < Cap) ? 0 : _head;
-        return _txRing[(start + logical) % Cap];
+        var start = (_count < _txRing.Length) ? 0 : _head;
+        return _txRing[(start + logical) % _txRing.Length];
     }
 
     private string FormatLabel(double v)
@@ -125,7 +134,7 @@ public class NetworkChart : FrameworkElement
             dc.DrawText(ft, new Point(0, y - ft.Height / 2));
         }
 
-        double unit = chartW / Cap;
+        double unit = chartW / _rxRing.Length;
         double barW = Math.Max(unit * 0.85, 1);
         double gap = unit * 0.15;
         double maxH = h * 0.95;

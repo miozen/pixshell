@@ -160,6 +160,7 @@ public partial class MainWindow : Window
         // 侧栏监控仪表盘。
         Monitor.OnCopyIp += () => { var ip = ActiveSession?.SourceHost?.Host; if (!string.IsNullOrEmpty(ip)) Clipboard.SetText(ip); };
         Monitor.OnSysInfo += () => _ = ShowSysInfo();
+        Monitor.OnNetworkInterfaceChanged += KickPollMonitorDebounced;
         // 侧栏状态行按钮：已连接 → 手动断开；已断开 → 原地重连；没有会话 → 打开连接管理器选主机。
         Monitor.OnToggleConnection += () =>
         {
@@ -1757,7 +1758,7 @@ public partial class MainWindow : Window
             Monitor.SetConnected(true, host);
             _lastPollKick = DateTime.UtcNow;
             // 跑监控脚本；输出里要有 ===mon=== 标记才解析，避免把普通命令输出当监控数据。
-            var outp = await session.ExecAsync(UI.MonitorSidebar.MonitorCommand);
+            var outp = await session.ExecAsync(UI.MonitorSidebar.MonitorCommandFor(Monitor.SelectedNetworkInterface));
             if (!IsActiveSession(session)) return; // 轮询期间用户切走了
             if (outp != null && outp.Contains("===mon===")) Monitor.Update(UI.MonitorSidebar.ParseMonitor(outp));
             // 本地→SSH 延迟：TCP 22 端口测时，3s 节流

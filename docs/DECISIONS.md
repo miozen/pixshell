@@ -51,3 +51,10 @@
 - 理由：让多电脑/多会话接力有稳定集成点，同时避免每次开发提交消耗完整跨平台打包资源。
 - 约束：`origin/dev` 已于 F0 创建；功能切片仍不得以直接推送 `main` 替代。CI 已支持手动触发，且 `main` push 自动构建已由 F0 补齐；`dev` 不得添加自动完整构建。
 - 依据：[AGENTS.md](../AGENTS.md)、[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)、[.github/workflows/build.yml](../.github/workflows/build.yml)。
+
+## D-008：W4 分阶段交付
+
+- 状态：**Accepted**（2026-10-14）
+- 决策：Windows W4 按风险拆分：先实现 W4a（监控图表时间窗与网卡选择），再实现 W4b（命令建议），最后单独设计 W4c（批量主机任务）。W4a 保持既有三秒采样频率与单会话监控模型；网卡选择仅影响网络计数采集，不能改变命令广播或创建后台常驻任务。
+- 理由：批量主机任务涉及目标选择、并发与失败呈现，属于独立业务语义；先交付可复用且不改变 SSH 会话边界的监控增强。
+- 依据：用户于 2026-10-14 确认 W4 并同意顺序；[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)、[win/UI/MonitorSidebar.xaml.cs](../win/UI/MonitorSidebar.xaml.cs)。

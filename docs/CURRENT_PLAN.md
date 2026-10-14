@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1 已完成 `sortOrder` 持久化与同组拖拽排序实现，集中验证待后续执行。**
+**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1 已完成；W4a（监控时间窗与网卡选择）正在实施。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -22,11 +22,12 @@
 ## In Progress
 
 - W1：同组“上移/下移”、跨组移动追加到目标组末尾、显式 `sortOrder` 持久化和同组拖拽排序均已实现；用户要求后续集中验证，待测项已记入对齐契约。
+- W4a：已确认并实现监控图表时间窗与远端网卡选择；待静态复核和后续集中验证。
 
 ## Remaining
 
 - 在适当的可控环境补测 W0 的“上传失败保留编辑内容”路径；该项暂缓不等于验收通过。
-- W2–W4（传输可靠性、隧道、效率与监控增强）保持 Proposed；未逐项确认前不得实施。
+- W2、W3 保持 Proposed；W4 按 D-008 分阶段实施，W4b/W4c 未确认前不得开始。
 - 作为独立后续事项评估并设计 macOS 内置 SSH/SFTP 的 host-key 验证统一策略；不得在未覆盖 OpenSSH 回退和两端行为前局部修改。
 - 在后续变更中逐步扩大最小自动化测试，优先桥路由、持久化和 SSH 状态机等非 UI 核心逻辑。
 - 发布前统一 README、CI 默认值和产品版本信息，并验证 macOS 正式签名/公证策略。
@@ -53,4 +54,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-将已完成的 W1 作为未验证检查点提交并推送 `dev`；整个已确认 Windows W 路线完成后再集中执行 W0/W1 的自动化、Windows UI、发布和 CI 验收。W0 上传失败路径保留为暂缓验证；W2–W4 必须先获得逐项确认，不能自行开始。
+复核 W4a diff 并形成 `dev` 检查点；整个已确认 Windows W 路线完成后再集中执行 W0/W1/W4a 的自动化、Windows UI、发布和 CI 验收。下一功能切片为 W4b 命令建议；W4c 在另行确认批量任务语义前不得开始。

@@ -7,8 +7,7 @@ namespace PixShell.UI;
 
 public class LatencyChart : FrameworkElement
 {
-    private const int Cap = 60;
-    private readonly double[] _ring = new double[Cap];
+    private double[] _ring = new double[60];
     private int _count;
     private int _head;
 
@@ -40,8 +39,8 @@ public class LatencyChart : FrameworkElement
     public void Push(double val)
     {
         _ring[_head] = val;
-        _head = (_head + 1) % Cap;
-        if (_count < Cap) _count++;
+        _head = (_head + 1) % _ring.Length;
+        if (_count < _ring.Length) _count++;
         InvalidateVisual();
     }
 
@@ -52,10 +51,19 @@ public class LatencyChart : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>调整图表保留的采样数。改变时间窗时清空旧样本，避免混合不同窗口的比例。</summary>
+    public void SetCapacity(int capacity)
+    {
+        capacity = Math.Clamp(capacity, 2, 300);
+        if (capacity == _ring.Length) return;
+        _ring = new double[capacity];
+        Clear();
+    }
+
     private double At(int logical)
     {
-        var start = (_count < Cap) ? 0 : _head;
-        return _ring[(start + logical) % Cap];
+        var start = (_count < _ring.Length) ? 0 : _head;
+        return _ring[(start + logical) % _ring.Length];
     }
 
     private string FormatLabel(double v)
@@ -111,7 +119,7 @@ public class LatencyChart : FrameworkElement
             dc.DrawText(ft, new Point(0, y - ft.Height / 2));
         }
 
-        double unit = chartW / Cap;
+        double unit = chartW / _ring.Length;
         double barW = Math.Max(unit * 0.85, 1);
         double gap = unit * 0.15;
         double maxH = h * 0.95;

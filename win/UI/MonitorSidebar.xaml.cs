@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -23,6 +24,7 @@ public partial class MonitorSidebar : UserControl
     private DateTime _lastNetAt;
     private bool _netInited;
     private string _lastNetIp = "";
+    private string _lastSampledInterface = "\0";
 
     // 连接态 dirty
     private bool _connOn;
@@ -36,6 +38,16 @@ public partial class MonitorSidebar : UserControl
     private string _lastLoad = "\0";
     private string _lastNetTitle = "\0";
     private string _lastPingTitle = "\0";
+    private readonly List<string> _networkInterfaces = new();
+    private bool _updatingNetworkInterfaces;
+    private string? _selectedNetworkInterface;
+    private const int MonitorIntervalSeconds = 3;
+    private int _chartWindowSeconds = 180;
+
+    public event Action? OnNetworkInterfaceChanged;
+
+    /// <summary>当前选定的远端网卡；null 表示沿用自动选择。</summary>
+    public string? SelectedNetworkInterface => _selectedNetworkInterface;
 
     // CPU jiffies 客户端差分（去掉远端 sleep 1）
     private long _cpuIdlePrev = -1;
@@ -66,6 +78,10 @@ public partial class MonitorSidebar : UserControl
         SwapBar.Kind = MetricBar.BarKind.Swap; SwapBar.SetLabel("交换");
         NetChart.Clear();
         PingChart.Clear();
+        NetInterfaceCombo.Items.Add("自动");
+        NetInterfaceCombo.SelectedIndex = 0;
+        ChartWindowCombo.SelectedIndex = 1;
+        SetChartWindow(_chartWindowSeconds);
     }
 
     private void CopyIp_Click(object sender, RoutedEventArgs e) => OnCopyIp?.Invoke();
@@ -109,6 +125,7 @@ public partial class MonitorSidebar : UserControl
             _cpuIdlePrev = _cpuTotalPrev = -1;
             NetChart.Clear();
             PingChart.Clear();
+            UpdateNetworkInterfaces("");
         }
     }
 
@@ -176,8 +193,15 @@ public partial class MonitorSidebar : UserControl
             }
         }
 
+        UpdateNetworkInterfaces(m.GetValueOrDefault("netifs") ?? "");
+
         // 网络：iface + 实时上下行。netrx/nettx 为 /proc/net/dev 累计字节，速率 = Δbytes/Δt。
         var iface = m.GetValueOrDefault("netif", "-");
+        if (iface != _lastSampledInterface)
+        {
+            _lastSampledInterface = iface;
+            ResetNetworkSeries();
+        }
         var ipNow = IpValue.Text ?? "";
         if (ipNow != _lastNetIp)
         {
@@ -232,6 +256,67 @@ public partial class MonitorSidebar : UserControl
             PingTitle.Text = $"延迟 {ms:F1} ms";
         });
     }
+
+    private void ChartWindow_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ChartWindowCombo.SelectedItem is ComboBoxItem { Tag: string seconds }
+            && int.TryParse(seconds, out var value)) SetChartWindow(value);
+    }
+
+    private void SetChartWindow(int seconds)
+    {
+        _chartWindowSeconds = Math.Clamp(seconds, 60, 900);
+        var samples = Math.Max(2, (int)Math.Ceiling(_chartWindowSeconds / (double)MonitorIntervalSeconds));
+        NetChart.SetCapacity(samples);
+        PingChart.SetCapacity(samples);
+    }
+
+    private void NetInterface_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingNetworkInterfaces) return;
+        var selected = NetInterfaceCombo.SelectedItem as string;
+        var next = string.IsNullOrWhiteSpace(selected) || selected == "自动" ? null : selected;
+        if (next == _selectedNetworkInterface) return;
+        _selectedNetworkInterface = next;
+        ResetNetworkSeries();
+        OnNetworkInterfaceChanged?.Invoke();
+    }
+
+    private void UpdateNetworkInterfaces(string raw)
+    {
+        var next = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(IsSafeInterfaceName).Distinct(StringComparer.Ordinal).ToList();
+        if (_networkInterfaces.SequenceEqual(next)) return;
+
+        _networkInterfaces.Clear();
+        _networkInterfaces.AddRange(next);
+        var selectionLost = _selectedNetworkInterface != null && !_networkInterfaces.Contains(_selectedNetworkInterface);
+        if (selectionLost)
+            _selectedNetworkInterface = null;
+
+        _updatingNetworkInterfaces = true;
+        try
+        {
+            NetInterfaceCombo.Items.Clear();
+            NetInterfaceCombo.Items.Add("自动");
+            foreach (var iface in _networkInterfaces) NetInterfaceCombo.Items.Add(iface);
+            NetInterfaceCombo.SelectedItem = _selectedNetworkInterface ?? "自动";
+        }
+        finally { _updatingNetworkInterfaces = false; }
+        if (selectionLost) ResetNetworkSeries();
+    }
+
+    private void ResetNetworkSeries()
+    {
+        _netInited = false;
+        _lastRx = _lastTx = 0;
+        _lastNetAt = DateTime.MinValue;
+        _lastNetTitle = "\0";
+        NetChart.Clear();
+    }
+
+    private static bool IsSafeInterfaceName(string name) =>
+        Regex.IsMatch(name, "^[A-Za-z0-9_.:@-]+$");
 
     /// <summary>字节/秒 → 人类可读速率（B/s · KB/s · MB/s · GB/s）。</summary>
     private static string FormatRate(double bytesPerSec)
@@ -293,8 +378,18 @@ free -m 2>/dev/null | awk '/^Mem:/{printf ""mem=%.0f|%.1fG/%.1fG\n"",$3*100/$2,$
 free -m 2>/dev/null | awk '/^Swap:/{if($2>0)printf ""swap=%.0f|%.1fG/%.1fG\n"",$3*100/$2,$3/1024,$2/1024; else printf ""swap=0|0/0\n""}'
 printf ""disks=""; df -h 2>/dev/null | awk '$1 ~ /^\/dev/{printf ""%s|%s|%s;"",$6,$4,$2}'; echo
 printf ""procs=""; ps aux 2>/dev/null | sed 1d | sort -rk4 | awk 'NR<=5{c=$11; sub(/.*\//,"""",c); printf ""%dM|%s|%s;"",$6/1024,$3,c}'; echo
+printf ""netifs=""; cat /proc/net/dev 2>/dev/null | tr ':' ' ' | awk 'NR>2 && $1!=""lo""{printf ""%s,"",$1}'; echo
 cat /proc/net/dev 2>/dev/null | tr ':' ' ' | awk 'NR>2 && $1!=""lo"" && $1 !~ /^(docker|veth|br-)/{print ""netif=""$1; print ""netrx=""$2; print ""nettx=""$10; print ""netval=""$2+$10; exit}'
 ";
+
+    /// <summary>默认采集自动选择的网卡；用户选择网卡时只覆写网络计数行，其他监控语义不变。</summary>
+    public static string MonitorCommandFor(string? networkInterface)
+    {
+        if (string.IsNullOrWhiteSpace(networkInterface) || !IsSafeInterfaceName(networkInterface)) return MonitorCommand;
+        return MonitorCommand + $@"
+cat /proc/net/dev 2>/dev/null | tr ':' ' ' | awk -v wanted='{networkInterface}' 'NR>2 && $1==wanted{{print ""netif=""$1; print ""netrx=""$2; print ""nettx=""$10; print ""netval=""$2+$10; exit}}'
+";
+    }
 
     /// <summary>解析 ===mon=== 之后的 KEY=value 输出行（对齐 mac parseMonitor）。</summary>
     public static Dictionary<string, string> ParseMonitor(string output)

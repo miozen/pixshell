@@ -96,8 +96,11 @@
             </Border>
 
             <!-- 网络 — 柱状图 -->
-            <TextBlock Text="网络" FontSize="10" FontWeight="Bold" Margin="10,6,10,2"
-                       Foreground="{DynamicResource BrushMuted}"/>
+            <DockPanel Margin="10,6,10,2" LastChildFill="False">
+                <TextBlock Text="网络" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource BrushMuted}"/>
+                <ComboBox x:Name="NetInterfaceCombo" DockPanel.Dock="Right" MinWidth="82" Height="20" FontSize="10"
+                          SelectionChanged="NetInterface_SelectionChanged" ToolTip="选择要监控的远端网卡"/>
+            </DockPanel>
             <Border BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1" Padding="8,6,8,6">
                 <StackPanel>
                     <TextBlock x:Name="NetTitle" Text="-" FontSize="10" Foreground="{DynamicResource BrushMuted}" Margin="0,0,0,2"/>
@@ -106,8 +109,16 @@
             </Border>
 
             <!-- 延迟 — 柱状图 -->
-            <TextBlock Text="延迟" FontSize="10" FontWeight="Bold" Margin="10,6,10,2"
-                       Foreground="{DynamicResource BrushMuted}"/>
+            <DockPanel Margin="10,6,10,2" LastChildFill="False">
+                <TextBlock Text="延迟" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource BrushMuted}"/>
+                <ComboBox x:Name="ChartWindowCombo" DockPanel.Dock="Right" MinWidth="82" Height="20" FontSize="10"
+                          SelectionChanged="ChartWindow_SelectionChanged" ToolTip="设置网络和延迟图表的时间窗">
+                    <ComboBoxItem Tag="60">1 分钟</ComboBoxItem>
+                    <ComboBoxItem Tag="180">3 分钟</ComboBoxItem>
+                    <ComboBoxItem Tag="300">5 分钟</ComboBoxItem>
+                    <ComboBoxItem Tag="900">15 分钟</ComboBoxItem>
+                </ComboBox>
+            </DockPanel>
             <Border BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1" Padding="8,6,8,6">
                 <StackPanel>
                     <TextBlock x:Name="PingTitle" Text="延迟" FontSize="10" Foreground="{DynamicResource BrushMuted}" Margin="0,0,0,2"/>
