@@ -12,4 +12,4 @@
 - **Validation Pending**: 在 Windows + OpenWrt 上至少连续重复“连接 → 经 SFTP 打开未修改文件 → 断开 → 立即重连”并收集 PixShell `ssh`/`sftp` 日志及 OpenWrt `logread`；回归 Alpine。其后仍待 W1 自动化（含 `sortOrder`、拖拽重排和跨组拒绝）、W2 传输与冲突保护、W4a/W4b/W4c、Windows WPF 编译/发布、Windows 实机交互及按需手动 `dev` GitHub build；W0 上传失败保留脏内容补测；macOS Swift package 解析失败独立诊断。
 - **Known Issues / Blockers**: 尚无真实 OpenWrt 的修复验证证据，不能把“版本交换前关闭”单方归因为 PixShell 或 Dropbear。W0 的上传失败保留编辑内容尚未测试，按用户指示暂缓。两个跨平台 build run 均因 macOS arm64/x64 在 Resolve Swift packages 失败而整体标红；Windows job 与 artifact 均成功。Linux SDK 缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能构建完整 Windows 应用。`gh` CLI 的 HTTPS API token 已失效，不能从此环境使用 `gh workflow run`；Git SSH 443 推送正常。README/部分 CI 默认版本滞后；macOS 内置 NIO SSH/SFTP 当前接受所有主机密钥。
 - **Exact Next Action**: 在 Windows 机器连接 OpenWrt，连续重复至少 10 次“连接 → SFTP 双击打开一个未修改的小文本文件 → 关闭 SSH → 立即重连”；记录成功/失败次数、PixShell 的 `ssh`/`sftp` 日志及 OpenWrt `logread`，再以同一序列回归 Alpine。
-- **Cross-machine Ready**: **NO** — `20ec753` 与本状态提交尚未推送到 `origin/dev`。
+- **Cross-machine Ready**: **YES** — 代码检查点 `20ec753` 与状态提交 `0a35141` 已推送到 `origin/dev`；接收端应从本文件的 Exact Next Action 开始。
