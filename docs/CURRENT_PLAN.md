@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1、W2a–W2c 与 W4a–W4c 已完成实现；OpenWrt/Dropbear 立即重连最小修复已实现并待 Windows 实机复测；W3 待后续确认。**
+**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1、W2a–W2c 与 W4a–W4c 已完成实现；OpenWrt/Dropbear 立即重连最小修复已实现并待 Windows 实机复测；W3 已排除。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -34,7 +34,7 @@
 
 - 在适当的可控环境补测 W0 的“上传失败保留编辑内容”路径；该项暂缓不等于验收通过。
 - 在 Windows 上对 OpenWrt Dropbear 重复执行“连接 → SFTP 打开未修改文件 → 断开 → 立即重连”，并查看 PixShell SSH/SFTP 日志与 OpenWrt `logread`；同时回归 Alpine。该验证是 D-011 的确认依据，未完成前不得宣称问题已在真实设备解决。
-- W3 保持待确认；W2 与 W4a–W4c 已完成实现，待按用户约定统一验证。
+- W3 已由 D-012 排除；W1、W2 与 W4 的全部已确认实现事项已完成，待按用户约定统一验证。
 - 作为独立后续事项评估并设计 macOS 内置 SSH/SFTP 的 host-key 验证统一策略；不得在未覆盖 OpenSSH 回退和两端行为前局部修改。
 - 在后续变更中逐步扩大最小自动化测试，优先桥路由、持久化和 SSH 状态机等非 UI 核心逻辑。
 - 发布前统一 README、CI 默认值和产品版本信息，并验证 macOS 正式签名/公证策略。
@@ -62,4 +62,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-先在 Windows + OpenWrt 完成 D-011 的重复立即重连验证并记录日志证据；随后按用户约定，执行全量 Windows W 切片的集中自动化、Windows UI、发布和 CI 验收。W3 仍待确认，不阻塞已完成 W 路线的验证。
+所有已确认的 Windows W 实现事项均已完成，W3 已由 D-012 排除。下一步按用户约定执行全量 Windows W 切片的集中自动化、Windows UI、发布和 CI 验收；其中先记录 D-011 的 Windows + OpenWrt 重复立即重连证据。

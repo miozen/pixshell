@@ -80,3 +80,10 @@
 - 理由：SFTP 使用独立 SSH 连接。对 OpenWrt Dropbear 等资源释放较敏感的服务端，先关闭终端而延后清理 SFTP 会扩大立即重连时的残留连接窗口；异步建连竞态还可能在清理后重新保留旧连接。
 - 约束：版本交换前被关闭只能记录为诊断线索，不能据此断言为客户端或 Dropbear 单方故障；必须以 Windows + OpenWrt 的重复手工复测和服务端日志确认。
 - 依据：[win/MainWindow.xaml.cs](../win/MainWindow.xaml.cs)、[win/SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs)、[win/Sftp/SftpConnectionEpoch.cs](../win/Sftp/SftpConnectionEpoch.cs)、[win/TerminalSession.cs](../win/TerminalSession.cs)。
+
+## D-012：W3 SSH 隧道管理不纳入本轮 Windows 改造
+
+- 状态：**Accepted**（2026-10-14）
+- 决策：取消 W3（SSH 隧道/端口转发管理）的实施；本轮 Windows FinalShell 工作流对齐不新增本地、远程或动态端口转发的管理界面、持久化或重连语义。
+- 理由：用户明确决定不做该功能。既有代理与 SSH Jump 能力维持原状，不能借此决策删除或改变它们。
+- 依据：用户于 2026-10-14 明确确认；[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)。
