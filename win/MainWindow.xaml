@@ -147,8 +147,11 @@
                             <TextBox x:Name="CmdInput" Grid.Column="1" VerticalContentAlignment="Center" Height="28"
                                      MinWidth="48" Margin="0,0,8,0" HorizontalAlignment="Stretch"
                                      PreviewKeyDown="CmdInput_PreviewKeyDown"/>
-                            <!-- 右侧锁死：建议 → 历史 → 发送 → ▾，整列 Auto 不参与压缩 -->
+                            <!-- 右侧锁死：批量 → 建议 → 历史 → 发送 → ▾，整列 Auto 不参与压缩 -->
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="批量" Style="{StaticResource PillButton}"
+                                        MinWidth="56" Padding="14,4" Margin="0,0,6,0" ToolTip="向选定的已连接会话批量执行命令"
+                                        Click="ShowBatchCommand_Click"/>
                                 <Button Content="建议" Style="{StaticResource PillButton}"
                                         MinWidth="56" Padding="14,4" Margin="0,0,6,0" ToolTip="命令建议（Ctrl+Space）"
                                         Click="ShowCommandSuggestions_Click"/>

@@ -1489,6 +1489,10 @@ public partial class MainWindow : Window
     // 对齐 mac Store/CommandBox.swift + App/AppDelegate+CommandBox.swift。
     // =====================================================================
     private readonly Store.CommandHistory _cmdHistory = new();
+    private readonly UI.ToolResultWindow _batchResultWindow = new();
+    private int _batchCommandBusy;
+    private const int BatchCommandConcurrency = 3;
+    private const int BatchOutputLimit = 12_000;
 
     private void SendCommand_Click(object sender, RoutedEventArgs e) => SendCurrentCommand();
 
@@ -1531,18 +1535,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        // ${参数} → 逐个弹框取值；取消则整条放弃。
-        if (Store.CommandParams.HasUnresolved(text))
-        {
-            var values = new Dictionary<string, string>();
-            foreach (var name in Store.CommandParams.Parse(text))
-            {
-                var v = AskParam(name);
-                if (v == null) return;
-                values[name] = v;
-            }
-            text = Store.CommandParams.Render(text, values);
-        }
+        text = ResolveCommandParameters(text);
+        if (text == null) return;
 
         ActiveSession.SendText(text + "\r");
         _cmdHistory.Push(text);
@@ -1550,14 +1544,14 @@ public partial class MainWindow : Window
         CmdInput.Focus(); // 发送后焦点留在命令框（底栏 UX，对齐 mac sendCommandBox）
     }
 
-    private string? AskParam(string name)
+    private string? AskParam(string name, Window? owner = null)
     {
         var win = new Window
         {
 
             Background = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["BrushBg"],
             Foreground = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["BrushText"],
-            Title = "参数 " + name, Width = 320, SizeToContent = SizeToContent.Height, Owner = this,
+            Title = "参数 " + name, Width = 320, SizeToContent = SizeToContent.Height, Owner = owner ?? this,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false
         };
         var sp = new StackPanel { Margin = new Thickness(14) };
@@ -1575,6 +1569,19 @@ public partial class MainWindow : Window
         tb.Focus();
         var result = win.ShowDialog();
         return result == true && okClicked ? tb.Text : null;
+    }
+
+    private string? ResolveCommandParameters(string text, Window? owner = null)
+    {
+        if (!Store.CommandParams.HasUnresolved(text)) return text;
+        var values = new Dictionary<string, string>();
+        foreach (var name in Store.CommandParams.Parse(text))
+        {
+            var value = AskParam(name, owner);
+            if (value == null) return null;
+            values[name] = value;
+        }
+        return Store.CommandParams.Render(text, values);
     }
 
     /// <summary>Tab 补全：把最后一个 token 当远端路径前缀，用 ls 列同级候选，补到公共前缀。</summary>
@@ -1658,6 +1665,126 @@ public partial class MainWindow : Window
 
     /// <summary>命令栏「历史」按钮：按当前输入过滤历史，弹出选取菜单。</summary>
     private void ShowCommandSuggestions_Click(object sender, RoutedEventArgs e) => ShowCommandSuggestions();
+
+    private void ShowBatchCommand_Click(object sender, RoutedEventArgs e) => ShowBatchCommandDialog();
+
+    /// <summary>
+    /// W4c：只面向当前已连接会话的显式批量执行入口。它使用独立 ExecAsync 通道，
+    /// 不复用或改变现有“发送到所有已连接会话”的交互 shell 广播语义。
+    /// </summary>
+    private void ShowBatchCommandDialog()
+    {
+        var targets = Sessions.Items.OfType<TabItem>()
+            .Where(tab => tab.Tag is TerminalSession { Connected: true })
+            .Select(tab => ((TerminalSession)tab.Tag, ((TerminalSession)tab.Tag).TabTitle))
+            .ToList();
+        if (targets.Count == 0) { SetStatus("没有可用于批量执行的已连接会话"); return; }
+        if (System.Threading.Interlocked.CompareExchange(ref _batchCommandBusy, 0, 0) != 0)
+        {
+            SetStatus("已有批量任务正在执行");
+            return;
+        }
+
+        var win = new Window
+        {
+            Title = "批量执行命令", Width = 520, SizeToContent = SizeToContent.Height,
+            MaxHeight = 620, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
+            Background = (Brush)Application.Current.Resources["BrushBg"],
+            Foreground = (Brush)Application.Current.Resources["BrushText"],
+        };
+        var root = new StackPanel { Margin = new Thickness(14) };
+        root.Children.Add(new TextBlock { Text = "命令（仅对勾选的已连接会话执行）" });
+        var commandBox = new TextBox
+        {
+            Text = CmdInput.Text, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+            Height = 88, Margin = new Thickness(0, 4, 0, 10), VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontFamily = (FontFamily)Application.Current.Resources["FontMono"],
+        };
+        root.Children.Add(commandBox);
+        root.Children.Add(new TextBlock
+        {
+            Text = $"最多并发 {BatchCommandConcurrency} 台；单台失败继续；结果在完成后汇总。",
+            FontSize = 11, Foreground = (Brush)Application.Current.Resources["BrushMuted"], Margin = new Thickness(0, 0, 0, 6),
+        });
+        var targetBox = new StackPanel();
+        foreach (var (session, title) in targets)
+            targetBox.Children.Add(new CheckBox { Content = title, Tag = session, IsChecked = true, Margin = new Thickness(0, 2, 0, 2) });
+        root.Children.Add(new ScrollViewer { Content = targetBox, MaxHeight = 230, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var run = new Button { Content = "执行", Width = 72, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancel = new Button { Content = "取消", Width = 72, IsCancel = true };
+        actions.Children.Add(run); actions.Children.Add(cancel); root.Children.Add(actions);
+        win.Content = root;
+
+        List<(TerminalSession session, string title)>? selectedTargets = null;
+        string? command = null;
+        run.Click += (_, _) =>
+        {
+            command = ResolveCommandParameters(commandBox.Text.Trim(), win);
+            if (string.IsNullOrWhiteSpace(command)) return;
+            selectedTargets = targetBox.Children.OfType<CheckBox>()
+                .Where(box => box.IsChecked == true && box.Tag is TerminalSession)
+                .Select(box => ((TerminalSession)box.Tag, box.Content?.ToString() ?? "会话"))
+                .ToList();
+            if (selectedTargets.Count == 0)
+            {
+                MessageBox.Show(win, "请至少选择一个已连接会话。", "批量执行", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            win.DialogResult = true;
+        };
+        commandBox.Focus();
+        commandBox.CaretIndex = commandBox.Text.Length;
+
+        if (win.ShowDialog() == true && command != null && selectedTargets != null)
+            _ = RunBatchCommandAsync(command, selectedTargets);
+    }
+
+    private async Task RunBatchCommandAsync(string command, List<(TerminalSession session, string title)> targets)
+    {
+        if (System.Threading.Interlocked.CompareExchange(ref _batchCommandBusy, 1, 0) != 0) return;
+        _batchResultWindow.ShowRunning($"批量执行（{targets.Count} 台）");
+        try
+        {
+            using var gate = new SemaphoreSlim(BatchCommandConcurrency);
+            var tasks = targets.Select(async target =>
+            {
+                await gate.WaitAsync();
+                try
+                {
+                    var output = await target.session.ExecAsync(command);
+                    var failed = output.StartsWith("执行失败", StringComparison.Ordinal);
+                    return new BatchCommandResult(target.title, !failed, output);
+                }
+                catch (Exception ex)
+                {
+                    return new BatchCommandResult(target.title, false, "执行失败: " + ex.Message);
+                }
+                finally { gate.Release(); }
+            });
+            var results = await Task.WhenAll(tasks);
+            _batchResultWindow.ShowText(FormatBatchResults(command, results), "批量执行结果");
+        }
+        finally { System.Threading.Interlocked.Exchange(ref _batchCommandBusy, 0); }
+    }
+
+    private static string FormatBatchResults(string command, IEnumerable<BatchCommandResult> results)
+    {
+        var all = results.ToList();
+        var success = all.Count(result => result.Success);
+        var text = $"命令：{command}\n目标：{all.Count} 台，成功：{success}，失败：{all.Count - success}\n";
+        foreach (var result in all)
+        {
+            var output = result.Output ?? "";
+            if (output.Length > BatchOutputLimit) output = output[..BatchOutputLimit] + "\n…（输出已截断）";
+            text += $"\n===== {(result.Success ? "成功" : "失败")} · {result.Title} =====\n{output.TrimEnd()}\n";
+        }
+        return text;
+    }
+
+    private sealed record BatchCommandResult(string Title, bool Success, string Output);
 
     /// <summary>本地建议只回填输入框；不会执行命令，也不会触发远端路径查询。</summary>
     private void ShowCommandSuggestions()
