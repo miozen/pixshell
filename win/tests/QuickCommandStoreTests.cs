@@ -101,6 +101,23 @@ public sealed class QuickCommandStoreTests : IDisposable
         Assert.Equal("tail -n 20 /var/log/app.log", rendered);
     }
 
+    [Fact]
+    public void SuggestionsRankPrefixesAndNeverDuplicateCommandText()
+    {
+        var suggestions = CommandSuggestions.Build(
+            "tail",
+            new[] { "grep error", "tail -f /var/log/app.log" },
+            new[]
+            {
+                new QuickCommand { Name = "查看日志", Command = "tail -f /var/log/app.log" },
+                new QuickCommand { Name = "Tail errors", Command = "tail -n 100 /var/log/error.log" },
+            });
+
+        Assert.Equal(new[] { "tail -f /var/log/app.log", "tail -n 100 /var/log/error.log" }, suggestions.Select(x => x.Text));
+        Assert.Equal("历史", suggestions[0].Source);
+        Assert.Equal("快捷命令", suggestions[1].Source);
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_dir, recursive: true); }

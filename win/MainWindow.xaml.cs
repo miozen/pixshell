@@ -1496,6 +1496,10 @@ public partial class MainWindow : Window
     {
         switch (e.Key)
         {
+            case Key.Space when (Keyboard.Modifiers & ModifierKeys.Control) != 0:
+                ShowCommandSuggestions();
+                e.Handled = true;
+                break;
             case Key.Up:
                 CmdInput.Text = _cmdHistory.Older(CmdInput.Text);
                 CmdInput.CaretIndex = CmdInput.Text.Length;
@@ -1653,6 +1657,50 @@ public partial class MainWindow : Window
     }
 
     /// <summary>命令栏「历史」按钮：按当前输入过滤历史，弹出选取菜单。</summary>
+    private void ShowCommandSuggestions_Click(object sender, RoutedEventArgs e) => ShowCommandSuggestions();
+
+    /// <summary>本地建议只回填输入框；不会执行命令，也不会触发远端路径查询。</summary>
+    private void ShowCommandSuggestions()
+    {
+        var suggestions = Store.CommandSuggestions.Build(CmdInput.Text, _cmdHistory.Items, Cmds.CommandStore.Commands);
+        if (suggestions.Count == 0) { SetStatus("暂无命令建议"); return; }
+
+        var menu = new ContextMenu { PlacementTarget = CmdInput, Placement = System.Windows.Controls.Primitives.PlacementMode.Top };
+        foreach (var suggestion in suggestions)
+        {
+            var item = new MenuItem
+            {
+                Header = SuggestionHeader(suggestion),
+                ToolTip = "选择后仅回填到命令框；按 Enter 或“发送”才会执行",
+            };
+            item.Click += (_, _) =>
+            {
+                CmdInput.Text = suggestion.Text;
+                CmdInput.Focus();
+                CmdInput.CaretIndex = CmdInput.Text.Length;
+            };
+            menu.Items.Add(item);
+        }
+        menu.Items.Add(new Separator());
+        menu.Items.Add(new MenuItem { Header = "远端路径：按 Tab 补全", IsEnabled = false });
+        menu.IsOpen = true;
+    }
+
+    private static UIElement SuggestionHeader(Store.CommandSuggestion suggestion)
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 1, 20, 1) };
+        panel.Children.Add(new TextBlock { Text = suggestion.Label ?? suggestion.Text, FontWeight = FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock
+        {
+            Text = suggestion.Label == null ? suggestion.Source : $"{suggestion.Source} · {suggestion.Text}",
+            FontSize = 10,
+            Foreground = System.Windows.Media.Brushes.Gray,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 420,
+        });
+        return panel;
+    }
+
     private void ShowCommandHistory_Click(object sender, RoutedEventArgs e)
     {
         var items = _cmdHistory.Filter(CmdInput.Text);

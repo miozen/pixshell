@@ -18,5 +18,6 @@
 
   <ItemGroup>
     <Compile Include="..\Store\QuickCommands.cs" Link="Store\QuickCommands.cs" />
+    <Compile Include="..\Store\CommandSuggestions.cs" Link="Store\CommandSuggestions.cs" />
   </ItemGroup>
 </Project>
