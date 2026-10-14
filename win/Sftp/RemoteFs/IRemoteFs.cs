@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 
 namespace PixShell.Sftp.RemoteFs;
 
@@ -12,17 +13,20 @@ public interface IRemoteFs : IDisposable
 {
     bool Connected { get; }
     string WorkingDirectory { get; }
+    bool SupportsResumableTransfers { get; }
 
     // ---- 文件操作 ----
 
     /// <summary>列出目录内容。</summary>
     List<FsRow> ListDirectory(string path);
+    bool Exists(string path);
+    long GetFileSize(string path);
 
     /// <summary>下载远端文件到流。</summary>
-    void DownloadFile(string remotePath, Stream localStream);
+    void DownloadFile(string remotePath, Stream localStream, long remoteOffset = 0, CancellationToken cancellationToken = default);
 
     /// <summary>上传流到远端文件。</summary>
-    void UploadFile(Stream localStream, string remotePath);
+    void UploadFile(Stream localStream, string remotePath, long remoteOffset = 0, CancellationToken cancellationToken = default);
 
     // ---- 元操作 ----
 

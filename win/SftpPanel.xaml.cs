@@ -452,51 +452,62 @@ public partial class SftpPanel : UserControl
     {
         var skippedDirs = 0;
         var uploaded = 0;
-        string? uploadError = null;
-        await Task.Run(() =>
+        foreach (var one in paths)
         {
-            foreach (var one in paths)
-            {
-                if (Directory.Exists(one))
-                {
-                    skippedDirs++;
-                    continue;
-                }
-                if (!File.Exists(one)) continue;
-                Guid taskId = Guid.Empty;
-                try
-                {
-                    var remote = JoinRemote(_remoteDir, Path.GetFileName(one));
-                    using var localFs = File.OpenRead(one);
-                    var total = localFs.Length;
-                    taskId = TransferTasks.Start(
-                        TransferTasks.Direction.Upload, Path.GetFileName(one), one, remote, total,
-                        () => Dispatcher.BeginInvoke(new Action(() => _ = UploadDirect(new List<string> { one }, fs))));
-                    Dispatcher.Invoke(() => StatusLabel.Text = $"上传 {Path.GetFileName(one)} …");
-                    Log.Info($"直传上传 {one} → {remote}", "sftp");
-                    using var progress = new ProgressStream(localFs, n => TransferTasks.Report(taskId, n));
-                    fs.UploadFile(progress, remote);
-                    TransferTasks.Finish(taskId, ok: true);
-                    uploaded++;
-                }
-                catch (Exception ex)
-                {
-                    Log.Error($"上传失败 {one}: {ex.Message}", "sftp");
-                    if (taskId != Guid.Empty) TransferTasks.Finish(taskId, ok: false, detail: ex.Message);
-                    uploadError = ex.Message;
-                    return;
-                }
-            }
-        });
-        if (uploadError != null)
-        {
-            StatusLabel.Text = "上传失败: " + uploadError;
-            return;
+            if (Directory.Exists(one)) { skippedDirs++; continue; }
+            if (!File.Exists(one)) continue;
+            var remote = ResolveUploadDestination(fs, JoinRemote(_remoteDir, Path.GetFileName(one)));
+            if (remote == null) continue;
+            if (await UploadSingleDirectAsync(one, remote, remote + ".pixshell.part." + Guid.NewGuid().ToString("N"), fs)) uploaded++;
         }
         StatusLabel.Text = skippedDirs > 0
             ? $"直传完成（{skippedDirs} 个目录已跳过，请开启「打包传输」）"
-            : (uploaded > 0 ? "上传完成" : "无���上传文件");
+            : (uploaded > 0 ? "上传完成" : "无可上传文件");
         if (uploaded > 0) LoadRemoteDetail(_remoteDir);
+    }
+
+    private string? ResolveUploadDestination(IRemoteFs fs, string remote)
+    {
+        if (!fs.Exists(remote)) return remote;
+        var choice = MessageBox.Show(this, $"远端已存在完整文件：{Path.GetFileName(remote)}\n\n是 = 覆盖\n否 = 另存为\n取消 = 跳过此文件", "上传冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        if (choice == MessageBoxResult.Cancel) return null;
+        if (choice == MessageBoxResult.Yes) return remote;
+        var slash = remote.LastIndexOf('/'); var dir = slash <= 0 ? "/" : remote[..slash];
+        var name = remote[(slash + 1)..]; var baseName = Path.GetFileNameWithoutExtension(name); var ext = Path.GetExtension(name);
+        for (var i = 1; ; i++) { var candidate = (dir == "/" ? "/" : dir + "/") + $"{baseName} ({i}){ext}"; if (!fs.Exists(candidate)) return candidate; }
+    }
+
+    private async Task<bool> UploadSingleDirectAsync(string local, string remote, string temp, IRemoteFs fs)
+    {
+        Guid taskId = Guid.Empty;
+        var cancellation = fs.SupportsResumableTransfers ? new System.Threading.CancellationTokenSource() : null;
+        try
+        {
+            var total = new FileInfo(local).Length;
+            var offset = fs.SupportsResumableTransfers && fs.Exists(temp) ? Math.Min(fs.GetFileSize(temp), total) : 0;
+            taskId = TransferTasks.Start(TransferTasks.Direction.Upload, Path.GetFileName(local), local, remote, total,
+                () => Dispatcher.BeginInvoke(new Action(() => _ = UploadSingleDirectAsync(local, remote, temp, fs))), cancellation);
+            TransferTasks.Report(taskId, offset);
+            StatusLabel.Text = offset > 0 ? $"继续上传 {Path.GetFileName(local)} …" : $"上传 {Path.GetFileName(local)} …";
+            await Task.Run(() =>
+            {
+                using var input = File.OpenRead(local);
+                input.Position = offset;
+                using var progress = new ProgressStream(input, n => TransferTasks.Report(taskId, n), offset);
+                fs.UploadFile(progress, temp, offset, cancellation?.Token ?? default);
+                fs.Rename(temp, remote);
+            });
+            TransferTasks.Finish(taskId, true); return true;
+        }
+        catch (OperationCanceledException)
+        {
+            TransferTasks.FinishCancelled(taskId, "已取消；远端临时文件已保留，可继续"); StatusLabel.Text = "上传已取消；可继续或重新开始"; return false;
+        }
+        catch (Exception ex)
+        {
+            if (taskId != Guid.Empty) TransferTasks.Finish(taskId, false, ex.Message);
+            StatusLabel.Text = "上传失败: " + ex.Message; Log.Error($"上传失败 {local}: {ex.Message}", "sftp"); return false;
+        }
     }
 
     private async Task UploadItemsPackedAsync(List<string> paths)
@@ -603,26 +614,37 @@ public partial class SftpPanel : UserControl
     {
         var remote = JoinRemote(_remoteDir, row.Name);
         var part = local + ".pixshell.part";
+        var offset = fs.SupportsResumableTransfers && File.Exists(part) ? new FileInfo(part).Length : 0;
+        if (offset > row.Size) offset = 0;
+        var cancellation = new System.Threading.CancellationTokenSource();
         Guid taskId = Guid.Empty;
         try
         {
             taskId = TransferTasks.Start(
                 TransferTasks.Direction.Download, row.Name, remote, local, row.Size,
-                () => Dispatcher.BeginInvoke(new Action(() => _ = DownloadSingleDirectAsync(row, local, fs))));
-            StatusLabel.Text = $"下载 {row.Name} …";
+                () => Dispatcher.BeginInvoke(new Action(() => _ = DownloadSingleDirectAsync(row, local, fs))), cancellation);
+            TransferTasks.Report(taskId, offset);
+            StatusLabel.Text = offset > 0 ? $"继续下载 {row.Name} …" : $"下载 {row.Name} …";
             Log.Info($"直传下载 {remote} → {part}", "sftp");
             await Task.Run(() =>
             {
-                using (var output = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None))
-                using (var progress = new ProgressStream(output, n => TransferTasks.Report(taskId, n)))
+                using (var output = new FileStream(part, offset > 0 ? FileMode.Open : FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var progress = new ProgressStream(output, n => TransferTasks.Report(taskId, n), offset))
                 {
-                    fs.DownloadFile(remote, progress);
+                    output.Position = offset;
+                    fs.DownloadFile(remote, progress, offset, cancellation.Token);
                     progress.Flush();
                 }
                 File.Move(part, local, overwrite: true);
             });
             TransferTasks.Finish(taskId, ok: true);
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            if (taskId != Guid.Empty) TransferTasks.FinishCancelled(taskId);
+            StatusLabel.Text = "下载已取消；可继续或重新开始";
+            return false;
         }
         catch (Exception ex)
         {
@@ -692,7 +714,7 @@ public partial class SftpPanel : UserControl
         private readonly Action<long> _report;
         private long _transferred;
 
-        public ProgressStream(Stream inner, Action<long> report) { _inner = inner; _report = report; }
+        public ProgressStream(Stream inner, Action<long> report, long initialTransferred = 0) { _inner = inner; _report = report; _transferred = initialTransferred; }
         public override bool CanRead => _inner.CanRead;
         public override bool CanSeek => _inner.CanSeek;
         public override bool CanWrite => _inner.CanWrite;

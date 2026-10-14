@@ -176,6 +176,7 @@ public partial class ToolsPanel : UserControl
         {
             TransferTasks.State.Running => (Color.FromRgb(0x0A, 0x84, 0xFF), direction + "中"),
             TransferTasks.State.Done    => (Color.FromRgb(0x30, 0xD1, 0x58), direction + "完成"),
+            TransferTasks.State.Cancelled => (Color.FromRgb(0xFF, 0x9F, 0x0A), direction + "已取消"),
             _                           => (Color.FromRgb(0xFF, 0x45, 0x3A),
                                             string.IsNullOrEmpty(t.Detail) ? direction + "失败" : direction + "失败 · " + t.Detail),
         };
@@ -192,6 +193,13 @@ public partial class ToolsPanel : UserControl
         };
         DockPanel.SetDock(state, Dock.Right);
         row.Children.Add(state);
+        if (t.CanCancel)
+        {
+            var cancel = new Button { Content = "取消", FontSize = 10, Padding = new Thickness(5, 1, 5, 1), Margin = new Thickness(4, 0, 0, 0) };
+            cancel.Click += (_, _) => TransferTasks.Cancel(t.Id);
+            DockPanel.SetDock(cancel, Dock.Right);
+            row.Children.Add(cancel);
+        }
         if (t.CanRetry)
         {
             var retry = new Button { Content = "重试", FontSize = 10, Padding = new Thickness(5, 1, 5, 1), Margin = new Thickness(4, 0, 0, 0) };

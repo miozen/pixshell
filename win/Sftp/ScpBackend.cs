@@ -66,6 +66,20 @@ public class ScpBackend
 
     // ==================== Upload / Download ====================
 
+    public bool Exists(string path)
+    {
+        var name = Path.GetFileName(path);
+        var parent = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "/";
+        return ListDirectory(string.IsNullOrEmpty(parent) ? "/" : parent).Any(x => x.Name == name);
+    }
+
+    public long GetFileSize(string path)
+    {
+        var name = Path.GetFileName(path);
+        var parent = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "/";
+        return ListDirectory(string.IsNullOrEmpty(parent) ? "/" : parent).FirstOrDefault(x => x.Name == name)?.Size ?? 0;
+    }
+
     public void UploadFile(string localPath, string remotePath)
     {
         using var scp = _session.CreateScpClient();

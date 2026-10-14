@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using PixShell;
 
 namespace PixShell.Sftp;
@@ -146,7 +147,29 @@ public class ProcSftpClient : IDisposable
         }
     }
 
-    public void DownloadFile(string remotePath, Stream localStream)
+    public bool Exists(string path) => GetFileSize(path) >= 0;
+    public long GetFileSize(string path)
+    {
+        var slash = path.LastIndexOf('/');
+        var parent = slash <= 0 ? "/" : path[..slash];
+        var name = path[(slash + 1)..];
+        var found = ListDirectory(parent).FirstOrDefault(x => x.Name == name);
+        return found == null ? -1 : found.Size;
+    }
+
+    public void Rename(string from, string to)
+    {
+        lock (_lock)
+        {
+            var id = ++_reqId;
+            SendPacket(18, BuildPayload(id, pw => { WriteSFTPString(pw, from); WriteSFTPString(pw, to); }));
+            var response = ReadPayload();
+            if (response.Length < 9 || response[0] != 101 || ReadU32BE(response, 5) != 0)
+                throw new IOException("SFTP rename failed");
+        }
+    }
+
+    public void DownloadFile(string remotePath, Stream localStream, long remoteOffset = 0, CancellationToken cancellationToken = default)
     {
         if (_stdin == null || _stdout == null) throw new InvalidOperationException("Not connected");
         lock (_lock)
@@ -154,9 +177,10 @@ public class ProcSftpClient : IDisposable
             var id = ++_reqId;
             SendPacket(3, BuildPayload(id, pw => { WriteSFTPString(pw, remotePath); pw.WriteU32BE(1); pw.WriteU32BE(0); }));
             var handle = SliceBytes(ReadPayload(), 5);
-            long offset = 0;
+            long offset = remoteOffset;
             while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var rid = ++_reqId;
                 SendPacket(5, BuildPayload(rid, pw => { WriteBytes(pw, handle); pw.WriteU64BE((ulong)offset); pw.WriteU32BE(32768u); }));
                 var r = ReadPayload();
@@ -169,17 +193,18 @@ public class ProcSftpClient : IDisposable
         }
     }
 
-    public void UploadFile(Stream localStream, string remotePath)
+    public void UploadFile(Stream localStream, string remotePath, long remoteOffset = 0, CancellationToken cancellationToken = default)
     {
         if (_stdin == null || _stdout == null) throw new InvalidOperationException("Not connected");
         lock (_lock)
         {
             var id = ++_reqId;
-            SendPacket(3, BuildPayload(id, pw => { WriteSFTPString(pw, remotePath); pw.WriteU32BE(0x1A); pw.WriteU32BE(4); pw.WriteU32BE(0x1A4); }));
+            SendPacket(3, BuildPayload(id, pw => { WriteSFTPString(pw, remotePath); pw.WriteU32BE(remoteOffset == 0 ? 0x1A : 0x0A); pw.WriteU32BE(4); pw.WriteU32BE(0x1A4); }));
             var handle = SliceBytes(ReadPayload(), 5);
-            var buf = new byte[32768]; long offset = 0; int n;
+            var buf = new byte[32768]; long offset = remoteOffset; int n;
             while ((n = localStream.Read(buf, 0, buf.Length)) > 0)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var wid = ++_reqId;
                 SendPacket(6, BuildPayload(wid, pw => { WriteBytes(pw, handle); pw.WriteU64BE((ulong)offset); pw.WriteRaw(buf, n); }));
                 var s = ReadPayload();

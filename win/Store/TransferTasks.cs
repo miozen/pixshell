@@ -12,7 +12,7 @@ namespace PixShell;
 public static class TransferTasks
 {
     public enum Direction { Download, Upload }
-    public enum State { Running, Done, Failed }
+    public enum State { Running, Done, Failed, Cancelled }
 
     public sealed class Task
     {
@@ -27,7 +27,9 @@ public static class TransferTasks
         public string Detail { get; internal set; } = "";
         public DateTime Started { get; init; } = DateTime.Now;
         internal Action? Retry { get; init; }
-        public bool CanRetry => State == State.Failed && Retry != null;
+        internal CancellationTokenSource? Cancellation { get; init; }
+        public bool CanRetry => (State == State.Failed || State == State.Cancelled) && Retry != null;
+        public bool CanCancel => State == State.Running && Cancellation != null;
     }
 
     private static readonly List<Task> _tasks = new();
@@ -44,7 +46,7 @@ public static class TransferTasks
         get { lock (_tasks) return _tasks.ToList(); }
     }
 
-    public static Guid Start(Direction direction, string name, string source, string dest, long totalBytes, Action? retry = null)
+    public static Guid Start(Direction direction, string name, string source, string dest, long totalBytes, Action? retry = null, CancellationTokenSource? cancellation = null)
     {
         var task = new Task
         {
@@ -54,6 +56,7 @@ public static class TransferTasks
             Dest = dest,
             TotalBytes = Math.Max(0, totalBytes),
             Retry = retry,
+            Cancellation = cancellation,
         };
         lock (_tasks)
         {
@@ -84,6 +87,25 @@ public static class TransferTasks
             task.State = ok ? State.Done : State.Failed;
             task.Detail = detail;
             if (ok && task.TotalBytes > 0) task.TransferredBytes = task.TotalBytes;
+        }
+        Notify();
+    }
+
+    public static void Cancel(Guid id)
+    {
+        CancellationTokenSource? cancellation;
+        lock (_tasks) cancellation = _tasks.FirstOrDefault(x => x.Id == id)?.Cancellation;
+        cancellation?.Cancel();
+    }
+
+    public static void FinishCancelled(Guid id, string detail = "已取消；可继续或重新开始")
+    {
+        lock (_tasks)
+        {
+            var task = _tasks.FirstOrDefault(x => x.Id == id);
+            if (task == null) return;
+            task.State = State.Cancelled;
+            task.Detail = detail;
         }
         Notify();
     }

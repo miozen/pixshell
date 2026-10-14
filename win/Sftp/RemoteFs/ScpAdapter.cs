@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace PixShell.Sftp.RemoteFs;
 
@@ -15,22 +16,29 @@ internal class ScpAdapter : IRemoteFs
     public bool Connected => _scp.Connected;
     public string WorkingDirectory => "/";
     public bool SupportsTree => false;
+    public bool SupportsResumableTransfers => false;
 
     public ScpAdapter(ScpBackend scp) { _scp = scp; }
 
     public List<FsRow> ListDirectory(string path) => _scp.ListDirectory(path);
+    public bool Exists(string path) => _scp.Exists(path);
+    public long GetFileSize(string path) => _scp.GetFileSize(path);
     public List<FsRow>? ListTreeChildren(string path) => null;
 
-    public void DownloadFile(string remotePath, Stream localStream)
+    public void DownloadFile(string remotePath, Stream localStream, long remoteOffset = 0, CancellationToken cancellationToken = default)
     {
+        if (remoteOffset != 0) throw new NotSupportedException("SCP 后端不支持断点续传");
+        cancellationToken.ThrowIfCancellationRequested();
         // ScpBackend 下载到临时文件再复制到流
         var tmp = Path.GetTempFileName();
         try { _scp.DownloadFile(remotePath, tmp); using var fs = File.OpenRead(tmp); fs.CopyTo(localStream); }
         finally { try { File.Delete(tmp); } catch { } }
     }
 
-    public void UploadFile(Stream localStream, string remotePath)
+    public void UploadFile(Stream localStream, string remotePath, long remoteOffset = 0, CancellationToken cancellationToken = default)
     {
+        if (remoteOffset != 0) throw new NotSupportedException("SCP 后端不支持断点续传");
+        cancellationToken.ThrowIfCancellationRequested();
         var tmp = Path.GetTempFileName();
         try { using var fs = File.Create(tmp); localStream.CopyTo(fs); _scp.UploadFile(tmp, remotePath); }
         finally { try { File.Delete(tmp); } catch { } }
