@@ -78,7 +78,7 @@ public sealed class QuickCommandStoreTests : IDisposable
 
         var reloaded = new QuickCommandStore(_dir);
         Assert.Equal(new[] { "third", "first", "second" }, reloaded.List("ops").Select(c => c.Id));
-        Assert.Equal(new[] { 0, 1, 2 }, reloaded.List("ops").Select(c => c.SortOrder));
+        Assert.Equal(new[] { 0, 1, 2 }, reloaded.List("ops").Select(c => c.SortOrder!.Value));
         Assert.Contains("\"sortOrder\"", File.ReadAllText(Path.Combine(_dir, "quick-commands.json")));
     }
 
@@ -155,5 +155,19 @@ public sealed class TransferTasksTests
         var task = Assert.Single(TransferTasks.Items);
         Assert.True(task.CanRetry);
         Assert.Equal(1, retries);
+    }
+}
+
+public sealed class SftpConnectionEpochTests
+{
+    [Fact]
+    public void CleanupInvalidatesAnInFlightConnectionAttempt()
+    {
+        var epoch = new PixShell.Sftp.SftpConnectionEpoch();
+        var connecting = epoch.Advance();
+        var cleanup = epoch.Advance();
+
+        Assert.False(epoch.IsCurrent(connecting));
+        Assert.True(epoch.IsCurrent(cleanup));
     }
 }

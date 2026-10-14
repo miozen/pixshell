@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1、W2a–W2c 与 W4a–W4c 已完成实现；W3 待后续确认。**
+**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1、W2a–W2c 与 W4a–W4c 已完成实现；OpenWrt/Dropbear 立即重连最小修复已实现并待 Windows 实机复测；W3 待后续确认。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -28,10 +28,12 @@
 - W2a：统一传输任务、进度、失败重试入口和下载 `.part` 原子落盘已实现并形成未验证 `dev` 检查点；验证仍按用户约定集中执行。
 - W2b：单文件直传取消/续传、远端临时文件上传和 SCP 重启降级已实现；待集中验证。
 - W2c：打包传输的本地临时解压、冲突保护、任务取消和远端临时目录尽力清理已实现；待集中验证。
+- OpenWrt/Dropbear SSH 立即重连：已使活动会话在断开、原地重连、密码重试和关闭前先释放 SFTP；已使在途 SFTP 建连可被清理操作失效，并避免旧断连通知清掉已重连会话。纯逻辑回归已通过，待 Windows + OpenWrt 实机重复验证。
 
 ## Remaining
 
 - 在适当的可控环境补测 W0 的“上传失败保留编辑内容”路径；该项暂缓不等于验收通过。
+- 在 Windows 上对 OpenWrt Dropbear 重复执行“连接 → SFTP 打开未修改文件 → 断开 → 立即重连”，并查看 PixShell SSH/SFTP 日志与 OpenWrt `logread`；同时回归 Alpine。该验证是 D-011 的确认依据，未完成前不得宣称问题已在真实设备解决。
 - W3 保持待确认；W2 与 W4a–W4c 已完成实现，待按用户约定统一验证。
 - 作为独立后续事项评估并设计 macOS 内置 SSH/SFTP 的 host-key 验证统一策略；不得在未覆盖 OpenSSH 回退和两端行为前局部修改。
 - 在后续变更中逐步扩大最小自动化测试，优先桥路由、持久化和 SSH 状态机等非 UI 核心逻辑。
@@ -52,6 +54,7 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 - 本轮文档：检查标准文件存在、相对链接有效、Git 状态与 Handoff 一致，并执行 `git diff --check`。
 - F0 静态复核：已核对测试项目、`win/build.ps1 -Action test` 入口和 CI 触发范围。WSL 的 .NET 9.0.121 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release`，3/3 通过；完整 WPF 构建仍须 Windows 工具链或 GitHub Windows runner。
 - W1：第一部分曾在 WSL 运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，4/4 通过。`sortOrder` 与拖拽新增实现尚未执行集中验证；待测清单见 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md#w1-集中验证清单实现后执行)。
+- SSH/SFTP 生命周期：WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，9/9 通过（含清理使在途 SFTP 建连失效的回归测试）。该测试不覆盖 WPF、SSH.NET 或真实 Dropbear。
 
 ## Blockers
 
@@ -59,4 +62,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-W2 已完成实现；按用户约定，执行全量 Windows W 切片的集中自动化、Windows UI、发布和 CI 验收。W3 仍待确认，不阻塞已完成 W 路线的验证。
+先在 Windows + OpenWrt 完成 D-011 的重复立即重连验证并记录日志证据；随后按用户约定，执行全量 Windows W 切片的集中自动化、Windows UI、发布和 CI 验收。W3 仍待确认，不阻塞已完成 W 路线的验证。

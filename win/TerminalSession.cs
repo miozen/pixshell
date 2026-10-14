@@ -566,6 +566,8 @@ public sealed class TerminalSession : IDisposable
         catch (Exception ex)
         {
             Log.Error($"SSH 认证/握手失败 {user}@{host}:{port}: {ex.Message}", "ssh");
+            if (ex.Message.Contains("identification string", StringComparison.OrdinalIgnoreCase))
+                Log.Warn($"SSH 在版本交换前被远端关闭 {user}@{host}:{port}（可能是服务端连接限制或旧连接尚未释放）", "ssh");
             throw;
         }
         _connected = true;

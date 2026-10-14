@@ -117,21 +117,21 @@ public partial class SftpPanel : UserControl
     public void SetSession(TerminalSession? session)
     {
         if (ReferenceEquals(_session, session)) return;
-        _session = session;
         DisconnectSftp();
+        _session = session;
         _remoteEntries.Clear(); RemoteList.ItemsSource = null;
         RemoteTree.Items.Clear();
         OnPathChange?.Invoke("远端未连接");
     }
 
-    private int _connectGen;
+    private readonly SftpConnectionEpoch _connectEpoch = new();
     public void ConnectIfNeeded()
     {
         if (_remoteFs is { Connected: true }) return;
         if (_session is not { Connected: true }) { OnPathChange?.Invoke("远端未连接"); return; }
         if (_session.SourceHost?.IsLocal == true) { OnPathChange?.Invoke("本机终端（无远端）"); StatusLabel.Text = "本机终端无 SFTP"; return; }
         var session = _session;
-        var gen = System.Threading.Interlocked.Increment(ref _connectGen);
+        var gen = _connectEpoch.Advance();
         OnPathChange?.Invoke("连接中…");
         StatusLabel.Text = "连接中…";
         System.Threading.Tasks.Task.Run(async () =>
@@ -145,13 +145,14 @@ public partial class SftpPanel : UserControl
             }
             catch (Exception ex)
             {
-                Dispatcher.InvokeAsync(() => { if (gen == _connectGen) { StatusLabel.Text = "连接失败: " + ex.Message; OnPathChange?.Invoke("远端未连接"); } });
+                Dispatcher.InvokeAsync(() => { if (_connectEpoch.IsCurrent(gen)) { StatusLabel.Text = "连接失败: " + ex.Message; OnPathChange?.Invoke("远端未连接"); } });
                 return;
             }
             Dispatcher.InvokeAsync(() =>
             {
-                if (gen != _connectGen) { fs?.Dispose(); return; }
+                if (!_connectEpoch.IsCurrent(gen)) { Log.Info($"丢弃过期 SFTP 连接 gen={gen}", "sftp"); fs?.Dispose(); return; }
                 if (!ReferenceEquals(_session, session)) { fs?.Dispose(); return; }
+                if (session is not { Connected: true }) { fs?.Dispose(); return; }
                 if (_remoteFs is { Connected: true }) { fs?.Dispose(); return; }
                 _remoteFs = fs;
                 _remoteDir = fs.WorkingDirectory;
@@ -164,9 +165,12 @@ public partial class SftpPanel : UserControl
 
     private void DisconnectSftp()
     {
-        try { _remoteFs?.Dispose(); } catch { }
+        var gen = _connectEpoch.Advance();
+        var fs = _remoteFs;
         _remoteFs = null;
-        Dispatcher.InvokeAsync(() => { RemoteTree.Items.Clear(); RemoteList.Items.Clear(); });
+        try { fs?.Dispose(); } catch { }
+        Log.Info($"SFTP 已释放 gen={gen}", "sftp");
+        Dispatcher.InvokeAsync(() => { if (_connectEpoch.IsCurrent(gen)) { RemoteTree.Items.Clear(); RemoteList.Items.Clear(); } });
     }
 
     // =====================================================================

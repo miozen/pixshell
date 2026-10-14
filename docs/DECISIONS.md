@@ -72,3 +72,11 @@
 - 决策：W2 按风险拆分为 W2a–W2c。W2a 先建立 Windows 端进程内统一传输任务模型、直传进度、失败重试入口与下载 `.part` 临时文件后原子落盘；W2b 只为单文件直传实现取消和断点续传；W2c 单独定义打包传输的取消、覆盖与清理，不将其宣称为文件级续传。对于已存在的完整同名目标，默认保留，必须由用户明确选择覆盖、另存为或取消；上传使用远端临时文件，完成后才改名到最终路径。W2b 的续传仅限当前应用运行期间；SCP 后端可正常重新开始但不承诺续传。
 - 理由：当前 SFTP/SCP/系统 SFTP 三条后端路径只有同步流传输接口，且既有直传会直接覆盖同名目标。先统一任务状态与下载安全落盘，避免为追求“续传”而在未覆盖全部后端和打包流程时损坏完整文件。
 - 依据：用户于 2026-10-14 确认默认保护与续传范围；[win/SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs)、[win/Sftp/RemoteFs/IRemoteFs.cs](../win/Sftp/RemoteFs/IRemoteFs.cs)、[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)。
+
+## D-011：Windows SSH 重连前先释放 SFTP
+
+- 状态：**Accepted**（2026-10-14）
+- 决策：Windows GUI 会话执行断开、原地重连、密码重试或关闭活动标签前，必须先释放该会话关联的 SFTP 客户端；清理操作必须使在途 SFTP 建连结果失效，旧的异步结果不得回填到新会话。原地重连期间，旧断连通知不得清理已经建立的新 SFTP 状态。
+- 理由：SFTP 使用独立 SSH 连接。对 OpenWrt Dropbear 等资源释放较敏感的服务端，先关闭终端而延后清理 SFTP 会扩大立即重连时的残留连接窗口；异步建连竞态还可能在清理后重新保留旧连接。
+- 约束：版本交换前被关闭只能记录为诊断线索，不能据此断言为客户端或 Dropbear 单方故障；必须以 Windows + OpenWrt 的重复手工复测和服务端日志确认。
+- 依据：[win/MainWindow.xaml.cs](../win/MainWindow.xaml.cs)、[win/SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs)、[win/Sftp/SftpConnectionEpoch.cs](../win/Sftp/SftpConnectionEpoch.cs)、[win/TerminalSession.cs](../win/TerminalSession.cs)。
