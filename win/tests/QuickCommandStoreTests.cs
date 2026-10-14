@@ -124,3 +124,36 @@ public sealed class QuickCommandStoreTests : IDisposable
         catch { /* Best-effort cleanup for failed assertions or antivirus locks. */ }
     }
 }
+
+public sealed class TransferTasksTests
+{
+    [Fact]
+    public void ReportsProgressAndFinishesAtKnownTotal()
+    {
+        TransferTasks.Clear();
+        var id = TransferTasks.Start(TransferTasks.Direction.Download, "report.txt", "/tmp/report.txt", "C:\\Downloads\\report.txt", 100);
+
+        TransferTasks.Report(id, 40);
+        TransferTasks.Report(id, 10); // 进度不能倒退
+        TransferTasks.Finish(id, ok: true);
+
+        var task = Assert.Single(TransferTasks.Items);
+        Assert.Equal(TransferTasks.State.Done, task.State);
+        Assert.Equal(100, task.TransferredBytes);
+    }
+
+    [Fact]
+    public void FailedTaskCanRequestTheRegisteredRetry()
+    {
+        TransferTasks.Clear();
+        var retries = 0;
+        var id = TransferTasks.Start(TransferTasks.Direction.Upload, "report.txt", "C:\\report.txt", "/tmp/report.txt", 10, () => retries++);
+
+        TransferTasks.Finish(id, ok: false, detail: "connection lost");
+        TransferTasks.Retry(id);
+
+        var task = Assert.Single(TransferTasks.Items);
+        Assert.True(task.CanRetry);
+        Assert.Equal(1, retries);
+    }
+}

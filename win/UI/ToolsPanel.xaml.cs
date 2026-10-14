@@ -40,7 +40,8 @@ public partial class ToolsPanel : UserControl
     public ToolsPanel()
     {
         InitializeComponent();
-        DownloadTasks.Changed += ReloadDownloads;
+        TransferTasks.CaptureNotificationContext();
+        TransferTasks.Changed += ReloadDownloads;
     }
 
     /// <summary>浮窗是否已显示（看独立 host 窗口，不看 MainWindow 树里的 0×0 占位）。</summary>
@@ -163,19 +164,20 @@ public partial class ToolsPanel : UserControl
     {
         if (DlList == null) return;
         DlList.Children.Clear();
-        var tasks = DownloadTasks.Items;
+        var tasks = TransferTasks.Items;
         DlEmpty.Visibility = tasks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         foreach (var t in tasks.Take(20)) DlList.Children.Add(DownloadRow(t));
     }
 
-    private UIElement DownloadRow(DownloadTasks.Task t)
+    private UIElement DownloadRow(TransferTasks.Task t)
     {
+        var direction = t.Direction == TransferTasks.Direction.Download ? "下载" : "上传";
         var (color, text) = t.State switch
         {
-            DownloadTasks.State.Running => (Color.FromRgb(0x0A, 0x84, 0xFF), "下载中"),
-            DownloadTasks.State.Done    => (Color.FromRgb(0x30, 0xD1, 0x58), "完成"),
+            TransferTasks.State.Running => (Color.FromRgb(0x0A, 0x84, 0xFF), direction + "中"),
+            TransferTasks.State.Done    => (Color.FromRgb(0x30, 0xD1, 0x58), direction + "完成"),
             _                           => (Color.FromRgb(0xFF, 0x45, 0x3A),
-                                            string.IsNullOrEmpty(t.Detail) ? "失败" : "失败 · " + t.Detail),
+                                            string.IsNullOrEmpty(t.Detail) ? direction + "失败" : direction + "失败 · " + t.Detail),
         };
         var row = new DockPanel { Margin = new Thickness(8, 3, 8, 3) };
         row.Children.Add(new System.Windows.Shapes.Ellipse
@@ -190,6 +192,24 @@ public partial class ToolsPanel : UserControl
         };
         DockPanel.SetDock(state, Dock.Right);
         row.Children.Add(state);
+        if (t.CanRetry)
+        {
+            var retry = new Button { Content = "重试", FontSize = 10, Padding = new Thickness(5, 1, 5, 1), Margin = new Thickness(4, 0, 0, 0) };
+            retry.Click += (_, _) => TransferTasks.Retry(t.Id);
+            DockPanel.SetDock(retry, Dock.Right);
+            row.Children.Add(retry);
+        }
+        if (t.State == TransferTasks.State.Running && t.TotalBytes > 0)
+        {
+            var percent = Math.Min(100, (int)(t.TransferredBytes * 100 / t.TotalBytes));
+            var progress = new TextBlock
+            {
+                Text = $"{percent}%", FontSize = 10, Foreground = (Brush)Application.Current.Resources["BrushMuted"],
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0),
+            };
+            DockPanel.SetDock(progress, Dock.Right);
+            row.Children.Add(progress);
+        }
         row.Children.Add(new TextBlock
         {
             Text = t.Name, FontSize = 11, FontWeight = FontWeights.Medium,

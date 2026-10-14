@@ -463,18 +463,26 @@ public partial class SftpPanel : UserControl
                     continue;
                 }
                 if (!File.Exists(one)) continue;
+                Guid taskId = Guid.Empty;
                 try
                 {
                     var remote = JoinRemote(_remoteDir, Path.GetFileName(one));
                     using var localFs = File.OpenRead(one);
+                    var total = localFs.Length;
+                    taskId = TransferTasks.Start(
+                        TransferTasks.Direction.Upload, Path.GetFileName(one), one, remote, total,
+                        () => Dispatcher.BeginInvoke(new Action(() => _ = UploadDirect(new List<string> { one }, fs))));
                     Dispatcher.Invoke(() => StatusLabel.Text = $"上传 {Path.GetFileName(one)} …");
                     Log.Info($"直传上传 {one} → {remote}", "sftp");
-                    fs.UploadFile(localFs, remote);
+                    using var progress = new ProgressStream(localFs, n => TransferTasks.Report(taskId, n));
+                    fs.UploadFile(progress, remote);
+                    TransferTasks.Finish(taskId, ok: true);
                     uploaded++;
                 }
                 catch (Exception ex)
                 {
                     Log.Error($"上传失败 {one}: {ex.Message}", "sftp");
+                    if (taskId != Guid.Empty) TransferTasks.Finish(taskId, ok: false, detail: ex.Message);
                     uploadError = ex.Message;
                     return;
                 }
@@ -555,40 +563,74 @@ public partial class SftpPanel : UserControl
         var skippedDirs = 0;
         var downloaded = 0;
         try { Directory.CreateDirectory(destDir); } catch { /* 目标目录创建失败后面再报 */ }
-        await Task.Run(() =>
+        foreach (var r in rows)
         {
-            foreach (var r in rows)
+            if (r.IsDir)
             {
-                if (r.IsDir)
-                {
-                    skippedDirs++;
-                    continue;
-                }
-                Guid? task = null;
-                try
-                {
-                    var local = Path.Combine(destDir, r.Name);
-                    using var localFs = File.Create(local);
-                    StatusLabel.Text = $"下载 {r.Name} …";
-                    Log.Info($"直传下载 {JoinRemote(_remoteDir, r.Name)} → {local}", "sftp");
-                    task = DownloadTasks.Start(r.Name, local);
-                    fs.DownloadFile(JoinRemote(_remoteDir, r.Name), localFs);
-                    DownloadTasks.Finish(task.Value, ok: true);
-                    downloaded++;
-                }
-                catch (Exception ex)
-                {
-                    Log.Error($"下载失败 {r.Name}: {ex.Message}", "sftp");
-                    if (task.HasValue) DownloadTasks.Finish(task.Value, ok: false, detail: ex.Message);
-                    StatusLabel.Text = "下载失败: " + ex.Message;
-                    return;
-                }
+                skippedDirs++;
+                continue;
             }
-        });
+            var local = ResolveDownloadDestination(destDir, r.Name);
+            if (local == null) continue;
+            if (await DownloadSingleDirectAsync(r, local, fs)) downloaded++;
+        }
         StatusLabel.Text = skippedDirs > 0
             ? $"直传完成（{skippedDirs} 个目录已跳过，请开启「打包传输」）"
             : (downloaded > 0 ? $"下载完成: {destDir}" : "无可下载文件");
         if (downloaded > 0 && !_localHidden) LoadLocal(_localDir);
+    }
+
+    /// <summary>保留完整同名文件，只有用户显式选择覆盖才替换；另存为自动生成不冲突文件名。</summary>
+    private string? ResolveDownloadDestination(string destDir, string name)
+    {
+        var local = Path.Combine(destDir, name);
+        if (!File.Exists(local)) return local;
+        var choice = MessageBox.Show(this,
+            $"本地已存在完整文件：{name}\n\n是 = 覆盖\n否 = 另存为\n取消 = 跳过此文件",
+            "下载冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        if (choice == MessageBoxResult.Cancel) return null;
+        if (choice == MessageBoxResult.Yes) return local;
+        var baseName = Path.GetFileNameWithoutExtension(name);
+        var ext = Path.GetExtension(name);
+        for (var i = 1; ; i++)
+        {
+            var candidate = Path.Combine(destDir, $"{baseName} ({i}){ext}");
+            if (!File.Exists(candidate) && !File.Exists(candidate + ".pixshell.part")) return candidate;
+        }
+    }
+
+    private async Task<bool> DownloadSingleDirectAsync(FsRow row, string local, IRemoteFs fs)
+    {
+        var remote = JoinRemote(_remoteDir, row.Name);
+        var part = local + ".pixshell.part";
+        Guid taskId = Guid.Empty;
+        try
+        {
+            taskId = TransferTasks.Start(
+                TransferTasks.Direction.Download, row.Name, remote, local, row.Size,
+                () => Dispatcher.BeginInvoke(new Action(() => _ = DownloadSingleDirectAsync(row, local, fs))));
+            StatusLabel.Text = $"下载 {row.Name} …";
+            Log.Info($"直传下载 {remote} → {part}", "sftp");
+            await Task.Run(() =>
+            {
+                using (var output = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var progress = new ProgressStream(output, n => TransferTasks.Report(taskId, n)))
+                {
+                    fs.DownloadFile(remote, progress);
+                    progress.Flush();
+                }
+                File.Move(part, local, overwrite: true);
+            });
+            TransferTasks.Finish(taskId, ok: true);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"下载失败 {row.Name}: {ex.Message}", "sftp");
+            if (taskId != Guid.Empty) TransferTasks.Finish(taskId, ok: false, detail: ex.Message);
+            StatusLabel.Text = "下载失败: " + ex.Message;
+            return false;
+        }
     }
 
     /// <summary>远端打包 → 下载 → 本地解压 → 两端清理。</summary>
@@ -642,6 +684,48 @@ public partial class SftpPanel : UserControl
     }
 
     private static void TryDelete(string path) { try { File.Delete(path); } catch { } }
+
+    /// <summary>为既有同步 SFTP/SCP 后端提供字节级进度，不改变其协议调用方式。</summary>
+    private sealed class ProgressStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly Action<long> _report;
+        private long _transferred;
+
+        public ProgressStream(Stream inner, Action<long> report) { _inner = inner; _report = report; }
+        public override bool CanRead => _inner.CanRead;
+        public override bool CanSeek => _inner.CanSeek;
+        public override bool CanWrite => _inner.CanWrite;
+        public override long Length => _inner.Length;
+        public override long Position { get => _inner.Position; set => _inner.Position = value; }
+        public override void Flush() => _inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+        public override void SetLength(long value) => _inner.SetLength(value);
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = _inner.Read(buffer, offset, count);
+            if (read > 0) Report(read);
+            return read;
+        }
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            _inner.Write(buffer, offset, count);
+            if (count > 0) Report(count);
+        }
+        public override int Read(Span<byte> buffer)
+        {
+            var read = _inner.Read(buffer);
+            if (read > 0) Report(read);
+            return read;
+        }
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            _inner.Write(buffer);
+            if (buffer.Length > 0) Report(buffer.Length);
+        }
+        protected override void Dispose(bool disposing) { if (disposing) _inner.Dispose(); base.Dispose(disposing); }
+        private void Report(int amount) { _transferred += amount; _report(_transferred); }
+    }
 
     public void ToggleLocal()
     {

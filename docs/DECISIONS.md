@@ -65,3 +65,10 @@
 - 决策：W4c 只允许用户显式选择当前已连接的 GUI 会话，不自动连接已保存主机、不读取或扩展凭据范围。命令通过各会话独立 `ExecAsync` 通道执行，最大并发为 3；单台失败继续其余任务；结束后按会话汇总状态和输出，每台输出最多保留 12,000 字符。
 - 理由：在不改变现有交互式广播语义、会话隔离或凭据边界的前提下，提供可见、可控的批量维护能力，并防止无界并发和结果窗口膨胀。
 - 依据：用户于 2026-10-14 确认 W4c；[win/MainWindow.xaml.cs](../win/MainWindow.xaml.cs)。
+
+## D-010：W2 分阶段 SFTP 可靠性与目标保护
+
+- 状态：**Accepted**（2026-10-14）
+- 决策：W2 按风险拆分为 W2a–W2c。W2a 先建立 Windows 端进程内统一传输任务模型、直传进度、失败重试入口与下载 `.part` 临时文件后原子落盘；W2b 只为单文件直传实现取消和断点续传；W2c 单独定义打包传输的取消、覆盖与清理，不将其宣称为文件级续传。对于已存在的完整同名目标，默认保留，必须由用户明确选择覆盖、另存为或取消；上传的远端临时文件/原子改名策略属于 W2b，不在 W2a 局部实现。
+- 理由：当前 SFTP/SCP/系统 SFTP 三条后端路径只有同步流传输接口，且既有直传会直接覆盖同名目标。先统一任务状态与下载安全落盘，避免为追求“续传”而在未覆盖全部后端和打包流程时损坏完整文件。
+- 依据：用户于 2026-10-14 确认默认保护与续传范围；[win/SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs)、[win/Sftp/RemoteFs/IRemoteFs.cs](../win/Sftp/RemoteFs/IRemoteFs.cs)、[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)。

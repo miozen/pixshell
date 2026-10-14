@@ -19,5 +19,6 @@
   <ItemGroup>
     <Compile Include="..\Store\QuickCommands.cs" Link="Store\QuickCommands.cs" />
     <Compile Include="..\Store\CommandSuggestions.cs" Link="Store\CommandSuggestions.cs" />
+    <Compile Include="..\Store\TransferTasks.cs" Link="Store\TransferTasks.cs" />
   </ItemGroup>
 </Project>
