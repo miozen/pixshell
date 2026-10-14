@@ -516,24 +516,36 @@ public partial class SftpPanel : UserControl
         var st = SftpTransfer.Stamp();
         var localArchive = Path.Combine(Path.GetTempPath(), $"pixshell_up_{st}.tar.gz");
         var remoteArchive = $"/tmp/pixshell_up_{st}.tar.gz";
+        var remoteStaging = $"/tmp/pixshell_up_stage_{st}";
+        var cancellation = new System.Threading.CancellationTokenSource();
+        var total = paths.Where(File.Exists).Sum(p => new FileInfo(p).Length);
+        var taskId = TransferTasks.Start(TransferTasks.Direction.Upload, $"打包上传 {paths.Count} 项", string.Join(";", paths), _remoteDir, total,
+            () => Dispatcher.BeginInvoke(new Action(() => _ = UploadItemsPackedAsync(paths))), cancellation);
         StatusLabel.Text = $"本地打包 {paths.Count} 项 …";
         Log.Info("智能打包上传 " + string.Join(", ", paths.Select(Path.GetFileName)), "sftp");
-        var err = await SftpTransfer.PackLocalAsync(localArchive, paths);
-        if (err != null) { Log.Error("本地打包失败: " + err, "sftp"); StatusLabel.Text = "打包失败: " + err; return; }
+        string? err;
+        try { err = await SftpTransfer.PackLocalAsync(localArchive, paths, cancellation.Token); }
+        catch (OperationCanceledException) { TransferTasks.FinishCancelled(taskId); TryDelete(localArchive); StatusLabel.Text = "打包上传已取消"; return; }
+        if (err != null) { TransferTasks.Finish(taskId, false, err); Log.Error("本地打包失败: " + err, "sftp"); StatusLabel.Text = "打包失败: " + err; return; }
         try
         {
             StatusLabel.Text = "上传压缩包 …";
-            using (var localFs = File.OpenRead(localArchive)) fs.UploadFile(localFs, remoteArchive);
+            using (var localFs = File.OpenRead(localArchive))
+            using (var progress = new ProgressStream(localFs, n => TransferTasks.Report(taskId, n)))
+                fs.UploadFile(progress, remoteArchive, cancellationToken: cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
         }
+        catch (OperationCanceledException) { TransferTasks.FinishCancelled(taskId, "已取消；远端临时包将尽力清理"); _ = ExecRunner($"rm -f {SftpTransfer.Quote(remoteArchive)}"); TryDelete(localArchive); StatusLabel.Text = "打包上传已取消"; return; }
         catch (Exception ex)
         {
+            TransferTasks.Finish(taskId, false, ex.Message);
             Log.Error("压缩包上传失败: " + ex.Message, "sftp");
             StatusLabel.Text = "上传失败: " + ex.Message;
             TryDelete(localArchive);
             return;
         }
         TryDelete(localArchive);
-        var outp = await ExecRunner(SftpTransfer.ExtractCommand(remoteArchive, _remoteDir));
+        var outp = await ExecRunner(SftpTransfer.ExtractStagedCommand(remoteArchive, _remoteDir, remoteStaging));
         var (rc, msg) = SftpTransfer.ParseRemoteRC(outp ?? "");
         if (rc != 0)
         {
@@ -542,9 +554,12 @@ public partial class SftpPanel : UserControl
         }
         else
         {
-            StatusLabel.Text = $"已上传并解压 {paths.Count} 项";
+            var skipped = (outp ?? "").Split('\n').Count(x => x.StartsWith("SKIP:", StringComparison.Ordinal));
+            StatusLabel.Text = skipped > 0 ? $"已上传；{skipped} 项因冲突跳过" : $"已上传并解压 {paths.Count} 项";
             Log.Info("打包上传完成 → " + _remoteDir, "sftp");
         }
+        if (cancellation.IsCancellationRequested) { TransferTasks.FinishCancelled(taskId, "远端操作返回后已尽力清理临时资源"); StatusLabel.Text = "打包上传已取消；远端资源已尽力清理"; }
+        else TransferTasks.Finish(taskId, rc == 0, rc == 0 ? "" : msg);
         LoadRemoteDetail(_remoteDir);
     }
 
@@ -662,6 +677,9 @@ public partial class SftpPanel : UserControl
         var st = SftpTransfer.Stamp();
         var remoteArchive = $"/tmp/pixshell_dl_{st}.tar.gz";
         var localArchive = Path.Combine(Path.GetTempPath(), $"pixshell_dl_{st}.tar.gz");
+        var cancellation = new System.Threading.CancellationTokenSource();
+        var taskId = TransferTasks.Start(TransferTasks.Direction.Download, $"打包下载 {items.Count} 项", _remoteDir, destDir, 0,
+            () => Dispatcher.BeginInvoke(new Action(() => _ = PackedDownloadAsync(items, destDir))), cancellation);
         var paths = items.Select(r => JoinRemote(_remoteDir, r.Name)).ToList();
         StatusLabel.Text = $"远端打包 {items.Count} 项 …";
         Log.Info("智能打包下载 " + string.Join(", ", paths), "sftp");
@@ -669,6 +687,7 @@ public partial class SftpPanel : UserControl
         var (packRc, packMsg) = SftpTransfer.ParseRemoteRC(out1 ?? "");
         if (packRc != 0)
         {
+            TransferTasks.Finish(taskId, false, packMsg);
             Log.Error($"远端打包失败 rc={packRc}: {packMsg}", "sftp");
             StatusLabel.Text = string.IsNullOrWhiteSpace(packMsg)
                 ? $"远端打包失败 (rc={packRc})"
@@ -680,17 +699,24 @@ public partial class SftpPanel : UserControl
         try
         {
             Directory.CreateDirectory(destDir);
-            using (var localFs = File.Create(localArchive)) fs.DownloadFile(remoteArchive, localFs);
+            using (var localFs = File.Create(localArchive)) fs.DownloadFile(remoteArchive, localFs, cancellationToken: cancellation.Token);
         }
+        catch (OperationCanceledException) { TransferTasks.FinishCancelled(taskId, "已取消；远端临时包将尽力清理"); _ = ExecRunner($"rm -f {SftpTransfer.Quote(remoteArchive)}"); TryDelete(localArchive); StatusLabel.Text = "打包下载已取消"; return; }
         catch (Exception ex)
         {
+            TransferTasks.Finish(taskId, false, ex.Message);
             Log.Error($"打包下载失败: {ex.Message} 远端输出={out1}", "sftp");
             StatusLabel.Text = "下载失败: " + ex.Message;
             _ = ExecRunner($"rm -f {SftpTransfer.Quote(remoteArchive)}");
             return;
         }
         _ = ExecRunner($"rm -f {SftpTransfer.Quote(remoteArchive)}");
-        var err = await SftpTransfer.ExtractLocalAsync(localArchive, destDir);
+        var staging = Path.Combine(Path.GetTempPath(), $"pixshell_dl_stage_{st}");
+        Directory.CreateDirectory(staging);
+        string? err;
+        try { err = await SftpTransfer.ExtractLocalAsync(localArchive, staging, cancellation.Token); }
+        catch (OperationCanceledException) { TransferTasks.FinishCancelled(taskId); TryDeleteDirectory(staging); TryDelete(localArchive); StatusLabel.Text = "打包下载已取消"; return; }
+        var applied = false;
         if (err != null)
         {
             Log.Error("本地解压失败: " + err, "sftp");
@@ -698,14 +724,39 @@ public partial class SftpPanel : UserControl
         }
         else
         {
-            StatusLabel.Text = $"已下载并解压 {items.Count} 项 → {destDir}";
-            Log.Info("打包下载完成 → " + destDir, "sftp");
-            if (!_localHidden) LoadLocal(_localDir);
+            applied = MoveStagedItems(staging, destDir);
+            if (applied)
+            {
+                StatusLabel.Text = $"已下载并解压 {items.Count} 项 → {destDir}";
+                Log.Info("打包下载完成 → " + destDir, "sftp");
+                if (!_localHidden) LoadLocal(_localDir);
+            }
         }
+        TransferTasks.Finish(taskId, err == null && applied, err ?? (applied ? "" : "用户取消了目标目录合并"));
+        TryDeleteDirectory(staging);
         TryDelete(localArchive);
     }
 
+    /// <summary>临时目录中的顶层条目逐项确认后才落入目标目录，避免 tar 直接覆盖现有内容。</summary>
+    private bool MoveStagedItems(string staging, string destination)
+    {
+        foreach (var source in Directory.EnumerateFileSystemEntries(staging))
+        {
+            var target = Path.Combine(destination, Path.GetFileName(source));
+            if (File.Exists(target) || Directory.Exists(target))
+            {
+                var choice = MessageBox.Show(this, $"本地已存在：{Path.GetFileName(source)}\n\n是 = 覆盖\n否 = 跳过\n取消 = 取消整个打包下载", "解压冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                if (choice == MessageBoxResult.Cancel) return false;
+                if (choice == MessageBoxResult.No) continue;
+                if (Directory.Exists(target)) Directory.Delete(target, recursive: true); else File.Delete(target);
+            }
+            if (Directory.Exists(source)) Directory.Move(source, target); else File.Move(source, target);
+        }
+        return true;
+    }
+
     private static void TryDelete(string path) { try { File.Delete(path); } catch { } }
+    private static void TryDeleteDirectory(string path) { try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); } catch { } }
 
     /// <summary>为既有同步 SFTP/SCP 后端提供字节级进度，不改变其协议调用方式。</summary>
     private sealed class ProgressStream : Stream

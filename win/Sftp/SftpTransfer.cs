@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace PixShell.Sftp;
 
@@ -50,6 +51,15 @@ public static class SftpTransfer
         return $"tar -xzf {arc} -C {dst} 2>&1; rc=$?; rm -f {arc}; echo __PIXSHELL_RC:$rc";
     }
 
+    /// <summary>远端打包上传的安全落盘：先解压至唯一临时目录，再仅移动不存在冲突的顶层条目。</summary>
+    public static string ExtractStagedCommand(string archive, string remoteDir, string stagingDir)
+    {
+        var arc = Quote(archive); var dst = Quote(remoteDir); var stage = Quote(stagingDir);
+        return $"mkdir -p {stage}; tar -xzf {arc} -C {stage} 2>&1; rc=$?; " +
+               $"if [ $rc -eq 0 ]; then for p in {stage}/* {stage}/.[!.]*; do [ -e \"$p\" ] || continue; n=$(basename \"$p\"); if [ -e {dst}/\"$n\" ]; then echo \"SKIP:$n\"; else mv \"$p\" {dst}/; fi; done; fi; " +
+               $"rm -rf {stage}; rm -f {arc}; echo __PIXSHELL_RC:$rc";
+    }
+
     /// <summary>解析 ssh.exec 输出里的 <c>__PIXSHELL_RC:N</c>。
     /// 打包/解压路径<strong>必须</strong>有标记：空输出或无标记一律失败（旧「空=成功」会把未执行的 extract 当绿）。
     /// 兼容：非空无标记 → code=1 + 原文。</summary>
@@ -74,11 +84,11 @@ public static class SftpTransfer
     }
 
     /// <summary>本地解压到目标目录。返回错误描述，null 表示成���。</summary>
-    public static async Task<string?> ExtractLocalAsync(string archive, string intoDir) =>
-        await RunAsync("tar", new[] { "-xzf", archive, "-C", intoDir }).ConfigureAwait(false);
+    public static async Task<string?> ExtractLocalAsync(string archive, string intoDir, CancellationToken cancellationToken = default) =>
+        await RunAsync("tar", new[] { "-xzf", archive, "-C", intoDir }, cancellationToken).ConfigureAwait(false);
 
     /// <summary>本地打包（多项 → 一个 .tar.gz）。逐项 <c>-C 父目录 basename</c>，支持跨目录多选（对齐 mac packLocal）。</summary>
-    public static async Task<string?> PackLocalAsync(string archive, IReadOnlyList<string> paths)
+    public static async Task<string?> PackLocalAsync(string archive, IReadOnlyList<string> paths, CancellationToken cancellationToken = default)
     {
         if (paths.Count == 0) return "无文件";
         var args = new List<string> { "-czf", archive };
@@ -94,10 +104,10 @@ public static class SftpTransfer
             args.Add(parent);
             args.Add(baseName);
         }
-        return await RunAsync("tar", args.ToArray()).ConfigureAwait(false);
+        return await RunAsync("tar", args.ToArray(), cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<string?> RunAsync(string exe, string[] args)
+    private static async Task<string?> RunAsync(string exe, string[] args, CancellationToken cancellationToken)
     {
         try
         {
@@ -114,7 +124,8 @@ public static class SftpTransfer
             var errTask = p.StandardError.ReadToEndAsync();
             var outTask = p.StandardOutput.ReadToEndAsync();
             await Task.WhenAll(errTask, outTask).ConfigureAwait(false);
-            await p.WaitForExitAsync().ConfigureAwait(false);
+            try { await p.WaitForExitAsync(cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { } throw; }
             if (p.ExitCode == 0) return null;
             var msg = (errTask.Result + outTask.Result).Trim();
             return msg.Length == 0 ? $"tar 退出码 {p.ExitCode}" : msg;
