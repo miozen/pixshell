@@ -55,11 +55,12 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 - F0 静态复核：已核对测试项目、`win/build.ps1 -Action test` 入口和 CI 触发范围。WSL 的 .NET 9.0.121 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release`，3/3 通过；完整 WPF 构建仍须 Windows 工具链或 GitHub Windows runner。
 - W1：第一部分曾在 WSL 运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，4/4 通过。`sortOrder` 与拖拽新增实现尚未执行集中验证；待测清单见 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md#w1-集中验证清单实现后执行)。
 - SSH/SFTP 生命周期：WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，9/9 通过（含清理使在途 SFTP 建连失效的回归测试）。该测试不覆盖 WPF、SSH.NET 或真实 Dropbear。
+- Windows 构建修复：GitHub Windows 构建日志曾在 W2 传输代码报 7 个编译错误（`uint` 条件表达式、`NotSupportedException` 命名空间、以及将 `SftpPanel` 误作 `MessageBox` 的 `Window` owner）；已由 `de066bf` 最小修复。WSL 回归测试 9/9 通过，仍须手动触发 `dev` 的 Windows CI 完成 WPF 编译、publish 和安装包验证。
 
 ## Blockers
 
-- Linux 环境缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，不能执行完整 Windows 应用构建。Windows F0 已由 GitHub Windows runner 验证；macOS 两个 job 在 Swift 包解析阶段失败，须作为独立跨平台 CI 问题处理。
+- Linux 环境缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，且本机 WSL 的 Windows 互操作不可执行 `powershell.exe`，不能执行完整 Windows 应用构建。Windows F0 已由 GitHub Windows runner 验证；macOS 两个 job 在 Swift 包解析阶段失败，须作为独立跨平台 CI 问题处理。
 
 ## Next Action
 
-所有已确认的 Windows W 实现事项均已完成，W3 已由 D-012 排除。下一步按用户约定执行全量 Windows W 切片的集中自动化、Windows UI、发布和 CI 验收；其中先记录 D-011 的 Windows + OpenWrt 重复立即重连证据。
+先手动触发 `build` 工作流并选择 `dev`（包含 `de066bf`）验证 Windows Test、publish、zip 和 setup；通过后按用户约定继续全量 Windows UI 验收，其中先记录 D-011 的 Windows + OpenWrt 重复立即重连证据。
