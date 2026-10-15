@@ -64,4 +64,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-将本次编辑器下载生命周期修复提交并推送到 `dev`，再手动触发 `build` 验证 Windows Test、publish、zip 和 setup；随后在 Windows + OpenWrt 重复“打开未修改文件后立即断开并重连”，并记录成功/失败次数及两端日志。
+手动触发 `build`，选择包含 `119358e` 的 `dev`，验证 Windows Test、publish、zip 和 setup；随后在 Windows + OpenWrt 重复“打开未修改文件后立即断开并重连”，并记录成功/失败次数及两端日志。
