@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -90,6 +91,12 @@ public partial class SftpPanel : UserControl
     private string _remoteDir = "/";
     private List<FsRow> _remoteEntries = new();
 
+    // 打开编辑器前的下载与 SSH/SFTP 生命周期必须串起来。否则用户双击文件后立即
+    // 断开，旧下载仍会占着独立 SFTP 连接，与下一次 SSH 握手并发（Dropbear 尤其敏感）。
+    private readonly object _editorOpenLock = new();
+    private CancellationTokenSource _editorOpenCts = new();
+    private Task? _editorOpenTask;
+
     private string _localDir;
     private List<FsRow> _localEntries = new();
     private bool _localHidden = true;
@@ -117,7 +124,7 @@ public partial class SftpPanel : UserControl
     public void SetSession(TerminalSession? session)
     {
         if (ReferenceEquals(_session, session)) return;
-        DisconnectSftp();
+        _ = CleanupAsync();
         _session = session;
         _remoteEntries.Clear(); RemoteList.ItemsSource = null;
         RemoteTree.Items.Clear();
@@ -171,6 +178,32 @@ public partial class SftpPanel : UserControl
         try { fs?.Dispose(); } catch { }
         Log.Info($"SFTP 已释放 gen={gen}", "sftp");
         Dispatcher.InvokeAsync(() => { if (_connectEpoch.IsCurrent(gen)) { RemoteTree.Items.Clear(); RemoteList.Items.Clear(); } });
+    }
+
+    /// <summary>
+    /// 取消正在为编辑器读取的远端文件，并在释放 SFTP 后等待读取任务退出。
+    /// 重连路径必须 await 本方法，避免 Dropbear 在旧文件通道尚未收尾时拒绝新 SSH 握手。
+    /// </summary>
+    public async Task CleanupAsync()
+    {
+        CancellationTokenSource cts;
+        Task? editorOpen;
+        lock (_editorOpenLock)
+        {
+            cts = _editorOpenCts;
+            _editorOpenCts = new CancellationTokenSource();
+            editorOpen = _editorOpenTask;
+        }
+
+        try { cts.Cancel(); } catch (ObjectDisposedException) { }
+        DisconnectSftp();
+
+        if (editorOpen != null)
+        {
+            try { await editorOpen.ConfigureAwait(true); }
+            catch (Exception ex) { Log.Warn($"等待远端编辑读取收尾失败: {ex.Message}", "sftp"); }
+        }
+        cts.Dispose();
     }
 
     // =====================================================================
@@ -257,15 +290,26 @@ public partial class SftpPanel : UserControl
     {
         if (RemoteList.SelectedItem is not FsRow r) return;
         if (r.IsDir) EnterDirectory(JoinRemote(_remoteDir, r.Name));
-        else OpenRemoteFileForEdit(r);
+        else BeginOpenRemoteFileForEdit(r);
     }
 
     // =====================================================================
     // 内置编辑器：双击文件 / 右键"打开" → 下载到临时文件 → 交给 EditorWindow
     // =====================================================================
-    private async Task OpenRemoteFileForEdit(FsRow r)
+    private void BeginOpenRemoteFileForEdit(FsRow r)
+    {
+        Task task;
+        lock (_editorOpenLock)
+        {
+            task = OpenRemoteFileForEditAsync(r, _editorOpenCts.Token);
+            _editorOpenTask = task;
+        }
+    }
+
+    private async Task OpenRemoteFileForEditAsync(FsRow r, CancellationToken cancellationToken)
     {
         var fs = _remoteFs;
+        var session = _session;
         if (fs is not { Connected: true }) return;
         if (r.Size > 4 * 1024 * 1024) { StatusLabel.Text = "文件过大（>4MB），请先下载"; return; }
         var remote = JoinRemote(_remoteDir, r.Name);
@@ -275,14 +319,23 @@ public partial class SftpPanel : UserControl
         {
             await Task.Run(() =>
             {
-                using (var localFs = File.Create(tmp)) fs.DownloadFile(remote, localFs);
-            });
+                cancellationToken.ThrowIfCancellationRequested();
+                using (var localFs = File.Create(tmp)) fs.DownloadFile(remote, localFs, cancellationToken: cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+            }, cancellationToken);
+            if (cancellationToken.IsCancellationRequested || !ReferenceEquals(_remoteFs, fs) || !ReferenceEquals(_session, session)) return;
             string text;
             try { text = File.ReadAllText(tmp, Encoding.UTF8); }
             catch { text = File.ReadAllText(tmp, Encoding.Latin1); }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(_remoteFs, fs) || !ReferenceEquals(_session, session)) return;
             StatusLabel.Text = "";
             Log.Info($"打开远端文件 {remote}（{text.Length} 字符）", "editor");
             OnOpenFile?.Invoke(remote, text);
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Info($"取消打开远端文件 {remote}（会话已切换或断开）", "editor");
         }
         catch (Exception ex)
         {
@@ -410,7 +463,7 @@ public partial class SftpPanel : UserControl
         if (rows.Count == 0) return;
         var r = rows[0];
         if (r.IsDir) EnterDirectory(JoinRemote(_remoteDir, r.Name));
-        else OpenRemoteFileForEdit(r);
+        else BeginOpenRemoteFileForEdit(r);
     }
 
     /// <summary>上传：单个小文件直传；多选 / 目录 / ≥8MB 走本地打包 → 上传 → 远端解压（对齐 mac native-102）。</summary>
@@ -1075,7 +1128,7 @@ public partial class SftpPanel : UserControl
     }
 
     /// <summary>面板释放：断开 SFTP。</summary>
-    public void Cleanup() => DisconnectSftp();
+    public void Cleanup() => _ = CleanupAsync();
 }
 
 public sealed class FsRow

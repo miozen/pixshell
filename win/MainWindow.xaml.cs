@@ -719,7 +719,7 @@ public partial class MainWindow : Window
                 if (remember) CredentialStore.SetPassword(host.Id, entered);
                 if (item.Tag is TerminalSession s)
                 {
-                    if (IsActiveSession(s)) Sftp.Cleanup();
+                    if (IsActiveSession(s)) await Sftp.CleanupAsync();
                     s.Disconnect();
                     var proxy = ProxyStore.Find(host.ProxyId);
                     await s.ConnectAsync(host.Host, host.Port, host.Username, entered, host.KeyPath, proxy);
@@ -797,7 +797,7 @@ public partial class MainWindow : Window
     {
         if (item.Tag is not TerminalSession session || session.SourceHost is not { } host) return;
         Sessions.SelectedItem = item;
-        if (IsActiveSession(session)) Sftp.Cleanup();
+        if (IsActiveSession(session)) await Sftp.CleanupAsync();
 
         // 应用内 Web 终端：只刷新 WebView，不建 SSH
         if (host.IsWebSsh || session.IsWebSsh)
@@ -2333,9 +2333,9 @@ public partial class MainWindow : Window
         if (ActiveSession is { Connected: false }) { MenuReconnect(); return; }
         ShowConnectionManager();
     }
-    private void MenuDisconnect()
+    private async void MenuDisconnect()
     {
-        Sftp.Cleanup();
+        await Sftp.CleanupAsync();
         ActiveSession?.Disconnect();
         ClearSessionSidePanels();   // P1：断开即清 SFTP + 系统信息
         RefreshConnState();   // 侧栏红绿灯 + 断开/连接按钮跟着切
