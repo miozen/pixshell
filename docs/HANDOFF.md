@@ -12,4 +12,4 @@
 - **Validation Pending**: 手动运行 GitHub `build`（ref 必须包含 `84d5fa4`）确认 Windows Test、publish、zip、setup 和 artifact；然后在 Windows + OpenWrt 复现“打开未修改文件后立即断开并重连”，并回归 Alpine。后续仍待 W1/W2/W4 Windows UI 验收、W0 上传失败保留脏内容补测和 macOS Swift package 解析失败诊断。
 - **Known Issues / Blockers**: SSH.NET `2025.1.0` 在 restore 时报告两个高危安全公告；这是 warning 而非本次编译失败，必须另立依赖升级兼容性审查，不能在构建修复中盲目升级。现有多个 CS4014、CS8602 和 CS0414 警告同样不阻断构建，待集中验收后按风险单独处理。WSL 缺少 WPF targets 且 Windows 互操作不可执行 `powershell.exe`；`gh` CLI 的 HTTPS API token 已失效，不能从此环境手动触发工作流。其余历史风险见当前计划。
 - **Exact Next Action**: 提交本状态检查点并推送；随后手动运行 GitHub `build`，选择包含 `84d5fa4` 的 `dev`，并在 Windows + OpenWrt 执行“打开文件后立即断开并重连”复测。
-- **Cross-machine Ready**: **NO** — `84d5fa4` 与本状态提交尚未推送到 `origin/dev`。
+- **Cross-machine Ready**: **YES** — `84d5fa4` 与状态提交 `b67810e` 已推送到 `origin/dev`；接收端应从本文件的 Exact Next Action 开始。
