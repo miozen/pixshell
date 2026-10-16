@@ -280,6 +280,35 @@ public sealed class QuickCommandStore
         Save();
     }
 
+    /// <summary>
+    /// 合并备份中的快捷命令。语义与主机备份恢复一致：同 ID 覆盖为备份版本，
+    /// 缺失的 ID 新增，但不删除仅存在于本机的命令。整个批次只写盘一次。
+    /// </summary>
+    public int MergeFromBackup(IEnumerable<QuickCommand>? commands)
+    {
+        if (commands == null) return 0;
+
+        var merged = 0;
+        foreach (var command in commands)
+        {
+            if (command == null) continue;
+            if (string.IsNullOrWhiteSpace(command.Id)) command.Id = Guid.NewGuid().ToString();
+            if (string.IsNullOrWhiteSpace(command.Group)) command.Group = "默认";
+
+            var index = Commands.FindIndex(existing => existing.Id == command.Id);
+            if (index >= 0) Commands[index] = command;
+            else Commands.Add(command);
+            merged++;
+        }
+
+        if (merged > 0)
+        {
+            NormalizeSortOrders();
+            Save();
+        }
+        return merged;
+    }
+
     public void Delete(string id)
     {
         Commands.RemoveAll(c => c.Id == id);

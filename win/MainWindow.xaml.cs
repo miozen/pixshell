@@ -2865,7 +2865,7 @@ public partial class MainWindow : Window
         var quick = Cmds.CommandStore.Commands;
         var settings = new Dictionary<string, string>
         {
-            ["theme"] = ThemeManager.IsDark ? "dark" : "light",
+            ["theme"] = ThemeManager.Current.ToString().ToLowerInvariant(),
             ["colorScheme"] = Terminal.TermSchemeStore.CurrentId,
             ["termBgOverride"] = Terminal.TermBackgroundStore.Override,
         };
@@ -2895,18 +2895,43 @@ public partial class MainWindow : Window
         catch (Exception ex) { MessageBox.Show(this, "导入失败: " + ex.Message, "PixShell", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
 
-    /// <summary>把备份包 JSON 应用到本地（主机；密码不在包内，需重新输入）。先按 v1 bundle 解析，失败再退回旧的纯数组格式。</summary>
+    /// <summary>把 v1 备份包应用到本地。主机和命令均按 ID 合并；密码不在包内，需重新输入。</summary>
+    private (int hosts, int commands) ApplyBundle(Store.BackupBundle bundle)
+    {
+        foreach (var h in bundle.Hosts) HostStore.Upsert(h);
+        _hosts.Clear();
+        foreach (var h in HostStore.Load()) _hosts.Add(h);
+        RefreshHostViews();
+
+        var commands = Cmds.CommandStore.MergeFromBackup(bundle.QuickCommands);
+        Cmds.Reload();
+        ApplyBundleSettings(bundle.Settings);
+        return (bundle.Hosts.Count, commands);
+    }
+
+    /// <summary>恢复备份包已声明的 UI 设置；未知或无效值安全忽略，以兼容旧备份。</summary>
+    private static void ApplyBundleSettings(Dictionary<string, string>? settings)
+    {
+        if (settings == null) return;
+
+        if (settings.TryGetValue("theme", out var theme)
+            && Enum.TryParse<ThemeManager.Kind>(theme, true, out var themeKind))
+            ThemeManager.ApplyKind(themeKind);
+        if (settings.TryGetValue("colorScheme", out var scheme))
+            Terminal.TermSchemeStore.SetCurrent(scheme);
+        if (settings.TryGetValue("termBgOverride", out var background))
+            Terminal.TermBackgroundStore.Set(background);
+    }
+
+    /// <summary>把备份包 JSON 应用到本地；先按 v1 bundle 解析，失败再退回旧的纯主机数组格式。</summary>
     private void ApplyBundleJson(string json, string source)
     {
         try
         {
             var b = Store.BackupBundle.Decode(json);
-            foreach (var h in b.Hosts) HostStore.Upsert(h);
-            _hosts.Clear();
-            foreach (var h in HostStore.Load()) _hosts.Add(h);
-            RefreshHostViews();
-            Log.Info($"导入备份包 {source}：主机 {b.Hosts.Count} / 快捷命令 {b.QuickCommands.Count}", "backup");
-            MessageBox.Show(this, $"主机 {b.Hosts.Count} 台，快捷命令 {b.QuickCommands.Count} 条\n（密码不在备份包内，需重新输入）", "导入完成");
+            var applied = ApplyBundle(b);
+            Log.Info($"导入备份包 {source}：主机 {applied.hosts} / 快捷命令 {applied.commands}", "backup");
+            MessageBox.Show(this, $"主机 {applied.hosts} 台，快捷命令 {applied.commands} 条\n（密码不在备份包内，需重新输入）", "导入完成");
             return;
         }
         catch (Exception bundleEx)
@@ -2999,11 +3024,9 @@ public partial class MainWindow : Window
         if (c is not { Url.Length: > 0 }) { WebdavConfigure(); return; }
         var (bundle, err) = await Store.WebDavBackup.Pull(c);
         if (bundle == null) { MessageBox.Show(this, "下载失败: " + err, "PixShell", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
-        foreach (var h in bundle.Hosts) HostStore.Upsert(h);
-        _hosts.Clear();
-        foreach (var h in HostStore.Load()) _hosts.Add(h);
-        RefreshHostViews();
-        MessageBox.Show(this, $"主机 {bundle.Hosts.Count} 台（备份时间 {bundle.ExportedAt}）", "恢复完成");
+        var applied = ApplyBundle(bundle);
+        Log.Info($"从 WebDAV 恢复：主机 {applied.hosts} / 快捷命令 {applied.commands}", "backup");
+        MessageBox.Show(this, $"主机 {applied.hosts} 台，快捷命令 {applied.commands} 条\n（备份时间 {bundle.ExportedAt}；密码不在备份包内）", "恢复完成");
     }
 
     // =====================================================================

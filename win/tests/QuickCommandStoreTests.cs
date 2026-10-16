@@ -102,6 +102,34 @@ public sealed class QuickCommandStoreTests : IDisposable
     }
 
     [Fact]
+    public void MergeFromBackupAddsAndUpdatesCommandsWithoutDeletingLocalOnes()
+    {
+        var store = new QuickCommandStore(_dir);
+        store.Commands.Clear();
+        store.Upsert(new QuickCommand { Id = "local", Name = "Local", Group = "ops", Command = "echo local" });
+        store.Upsert(new QuickCommand { Id = "shared", Name = "Old", Group = "ops", Command = "echo old" });
+
+        var merged = store.MergeFromBackup(new[]
+        {
+            new QuickCommand
+            {
+                Id = "shared", Name = "Updated", Group = "ops", Command = "echo updated",
+                Params = new List<QuickCommandParam> { new() { Name = "target", DefaultValue = "all" } },
+                AutoReturn = false,
+            },
+            new QuickCommand { Id = "remote", Name = "Remote", Group = "deploy", Command = "deploy", SortOrder = 0 },
+        });
+
+        var reloaded = new QuickCommandStore(_dir);
+        Assert.Equal(2, merged);
+        Assert.Equal(new[] { "local", "shared" }, reloaded.List("ops").Select(c => c.Id));
+        Assert.Equal("echo updated", reloaded.Commands.Single(c => c.Id == "shared").Command);
+        Assert.False(reloaded.Commands.Single(c => c.Id == "shared").AutoReturn);
+        Assert.Equal("all", reloaded.Commands.Single(c => c.Id == "shared").Params!.Single().DefaultValue);
+        Assert.Equal(new[] { "remote" }, reloaded.List("deploy").Select(c => c.Id));
+    }
+
+    [Fact]
     public void SuggestionsRankPrefixesAndNeverDuplicateCommandText()
     {
         var suggestions = CommandSuggestions.Build(

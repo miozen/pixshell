@@ -87,3 +87,10 @@
 - 决策：取消 W3（SSH 隧道/端口转发管理）的实施；本轮 Windows FinalShell 工作流对齐不新增本地、远程或动态端口转发的管理界面、持久化或重连语义。
 - 理由：用户明确决定不做该功能。既有代理与 SSH Jump 能力维持原状，不能借此决策删除或改变它们。
 - 依据：用户于 2026-10-14 明确确认；[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)。
+
+## D-013：备份包 v1 的完整、非破坏性恢复
+
+- 状态：**Accepted**（2026-10-16）
+- 决策：Windows 本地导入和 WebDAV 恢复必须共用同一条 v1 备份包应用路径：主机与快捷命令按 ID 合并（同 ID 以备份更新、缺失项新增、不删除仅存在于本机的项），刷新命令面板，并恢复备份包已声明且可识别的主题、终端配色与终端背景设置。密码仍不进入备份包。旧版纯主机数组导入保持兼容，且不虚构不存在的命令或设置。
+- 理由：`BackupBundle` 已将 `Hosts`、`QuickCommands` 与 `Settings` 定义为同一备份快照；此前两个恢复入口只应用主机，导致“下载/导入成功但命令未出现”的已证实数据恢复缺口。与既有主机 `Upsert` 一致的合并语义避免恢复时静默删除本机独有命令。
+- 依据：[win/Store/BackupBundle.cs](../win/Store/BackupBundle.cs)、[win/Store/QuickCommands.cs](../win/Store/QuickCommands.cs)、[win/MainWindow.xaml.cs](../win/MainWindow.xaml.cs)。
