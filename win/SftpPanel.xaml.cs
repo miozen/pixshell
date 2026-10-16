@@ -97,6 +97,12 @@ public partial class SftpPanel : UserControl
     private CancellationTokenSource _editorOpenCts = new();
     private Task? _editorOpenTask;
 
+    // SFTP 后端探测本身也会建立独立 SSH 连接。断开时必须等它结束，不能只让 epoch
+    // 在完成后丢弃结果，否则 Dropbear 仍可能在新终端握手时看到旧探测连接。
+    private readonly object _sftpConnectLock = new();
+    private CancellationTokenSource? _sftpConnectCts;
+    private Task? _sftpConnectTask;
+
     private string _localDir;
     private List<FsRow> _localEntries = new();
     private bool _localHidden = true;
@@ -139,25 +145,31 @@ public partial class SftpPanel : UserControl
         if (_session.SourceHost?.IsLocal == true) { OnPathChange?.Invoke("本机终端（无远端）"); StatusLabel.Text = "本机终端无 SFTP"; return; }
         var session = _session;
         var gen = _connectEpoch.Advance();
-        OnPathChange?.Invoke("连接中…");
-        StatusLabel.Text = "连接中…";
-        System.Threading.Tasks.Task.Run(async () =>
+        var cts = new CancellationTokenSource();
+        lock (_sftpConnectLock)
         {
-            IRemoteFs? fs = null;
-            string label = "";
-            try
+            if (_sftpConnectTask is { IsCompleted: false })
             {
-                fs = await RemoteFsFactory.Connect(session);
-                label = fs is ScpAdapter ? "SCP" : (fs is ProcAdapter ? "SFTP(exec)" : "SFTP");
-            }
-            catch (Exception ex)
-            {
-                Dispatcher.InvokeAsync(() => { if (_connectEpoch.IsCurrent(gen)) { StatusLabel.Text = "连接失败: " + ex.Message; OnPathChange?.Invoke("远端未连接"); } });
+                cts.Dispose();
                 return;
             }
-            Dispatcher.InvokeAsync(() =>
+            _sftpConnectCts = cts;
+            _sftpConnectTask = ConnectRemoteFsAsync(session, gen, cts);
+        }
+        OnPathChange?.Invoke("连接中…");
+        StatusLabel.Text = "连接中…";
+    }
+
+    private async Task ConnectRemoteFsAsync(TerminalSession session, int gen, CancellationTokenSource cts)
+    {
+        IRemoteFs? fs = null;
+        try
+        {
+            fs = await RemoteFsFactory.Connect(session, cts.Token).ConfigureAwait(false);
+            var label = fs is ScpAdapter ? "SCP" : (fs is ProcAdapter ? "SFTP(exec)" : "SFTP");
+            await Dispatcher.InvokeAsync(() =>
             {
-                if (!_connectEpoch.IsCurrent(gen)) { Log.Info($"丢弃过期 SFTP 连接 gen={gen}", "sftp"); fs?.Dispose(); return; }
+                if (!_connectEpoch.IsCurrent(gen) || cts.IsCancellationRequested) { Log.Info($"丢弃过期 SFTP 连接 gen={gen}", "sftp"); fs?.Dispose(); fs = null; return; }
                 if (!ReferenceEquals(_session, session)) { fs?.Dispose(); return; }
                 if (session is not { Connected: true }) { fs?.Dispose(); return; }
                 if (_remoteFs is { Connected: true }) { fs?.Dispose(); return; }
@@ -167,7 +179,28 @@ public partial class SftpPanel : UserControl
                 LoadRemoteDetail(_remoteDir);
                 StatusLabel.Text = $"{label} 已连接";
             });
-        });
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Info($"SFTP 探测已取消 gen={gen}", "sftp");
+            try { fs?.Dispose(); } catch { }
+        }
+        catch (Exception ex)
+        {
+            await Dispatcher.InvokeAsync(() => { if (_connectEpoch.IsCurrent(gen) && !cts.IsCancellationRequested) { StatusLabel.Text = "连接失败: " + ex.Message; OnPathChange?.Invoke("远端未连接"); } });
+        }
+        finally
+        {
+            lock (_sftpConnectLock)
+            {
+                if (ReferenceEquals(_sftpConnectCts, cts))
+                {
+                    _sftpConnectCts = null;
+                    _sftpConnectTask = null;
+                }
+            }
+            cts.Dispose();
+        }
     }
 
     private void DisconnectSftp()
@@ -188,15 +221,29 @@ public partial class SftpPanel : UserControl
     {
         CancellationTokenSource cts;
         Task? editorOpen;
+        CancellationTokenSource? connectCts;
+        Task? sftpConnect;
         lock (_editorOpenLock)
         {
             cts = _editorOpenCts;
             _editorOpenCts = new CancellationTokenSource();
             editorOpen = _editorOpenTask;
         }
+        lock (_sftpConnectLock)
+        {
+            connectCts = _sftpConnectCts;
+            sftpConnect = _sftpConnectTask;
+        }
 
         try { cts.Cancel(); } catch (ObjectDisposedException) { }
+        try { connectCts?.Cancel(); } catch (ObjectDisposedException) { }
         DisconnectSftp();
+
+        if (sftpConnect != null)
+        {
+            try { await sftpConnect.ConfigureAwait(true); }
+            catch (Exception ex) { Log.Warn($"等待 SFTP 探测收尾失败: {ex.Message}", "sftp"); }
+        }
 
         if (editorOpen != null)
         {

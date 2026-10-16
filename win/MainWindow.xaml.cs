@@ -59,6 +59,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _monitorTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     /// <summary>PollMonitor 单飞：3s tick + 切 tab 可能重叠，避免并发 Exec mon 卡顿（GitHub #2 流畅度）。</summary>
     private int _pollMonitorBusy;
+    // 多个 UI 入口都可触发重连；同一时刻只允许一个重连流程，避免短时间建立重叠 SSH 连接。
+    private readonly SemaphoreSlim _reconnectGate = new(1, 1);
     // CLI 状态 dirty-check（避免 3s 无意义刷 brush/Text）
     private int _cliStatusKey = -1;
     // 切 tab 后 PollMonitor 防抖：避免 SelectionChanged 立刻再 Exec mon 叠 3s tick
@@ -590,7 +592,7 @@ public partial class MainWindow : Window
         {
             session.ApplyTermScheme(Terminal.TermSchemeStore.Current);
             var proxy = ProxyStore.Find(host.ProxyId);
-            await session.ConnectAsync(host.Host, host.Port, host.Username, pass, host.KeyPath, proxy);
+            await ConnectWithTransientRetryAsync(session, host, pass, proxy);
             SyncDockSession();
             Monitor.SetConnected(true, host.Host);
             ConnectAnim.Succeed();
@@ -704,6 +706,44 @@ public partial class MainWindow : Window
 
     private bool _retryPrompting;   // 防止连续失败叠出多个密码框
 
+    private static bool IsTransientSshSetupFailure(Exception ex)
+    {
+        for (Exception? e = ex; e != null; e = e.InnerException)
+        {
+            if (e is System.Net.Sockets.SocketException socket &&
+                socket.SocketErrorCode is System.Net.Sockets.SocketError.ConnectionAborted or System.Net.Sockets.SocketError.ConnectionReset)
+                return true;
+            var message = e.Message ?? "";
+            if (message.Contains("identification string", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("closed before any data", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("forcibly closed", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("终止了一个已建立", StringComparison.Ordinal)
+                || message.Contains("强迫关闭", StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    private async Task ConnectWithTransientRetryAsync(TerminalSession session, HostEntry host, string password, ProxyConfig? proxy)
+    {
+        var delays = new[] { 250, 750 };
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await session.ConnectAsync(host.Host, host.Port, host.Username, password, host.KeyPath, proxy);
+                return;
+            }
+            catch (Exception ex) when (attempt < delays.Length && IsTransientSshSetupFailure(ex))
+            {
+                var delay = delays[attempt];
+                Log.Warn($"SSH 建连瞬态失败，{delay}ms 后重试（{attempt + 1}/{delays.Length + 1}）{host.Username}@{host.Host}: {ex.Message}", "ssh");
+                SetStatus($"连接短暂中断，正在重试（{attempt + 2}/{delays.Length + 1}）…");
+                await Task.Delay(delay);
+            }
+        }
+    }
+
     /// <summary>认证失败后重新要密码并在**当前标签**上重连（勾选记住则写回 DPAPI 凭据库）。</summary>
     private void PromptRetryPassword(HostEntry host, TabItem item)
     {
@@ -722,7 +762,7 @@ public partial class MainWindow : Window
                     if (IsActiveSession(s)) await Sftp.CleanupAsync();
                     s.Disconnect();
                     var proxy = ProxyStore.Find(host.ProxyId);
-                    await s.ConnectAsync(host.Host, host.Port, host.Username, entered, host.KeyPath, proxy);
+                    await ConnectWithTransientRetryAsync(s, host, entered, proxy);
                     LeaveQuickConnect(); // 重试成功：先收 QC 再亮 HWND
                     SyncDockSession();
                     Monitor.SetConnected(true, host.Host);
@@ -796,6 +836,13 @@ public partial class MainWindow : Window
     private async Task ReconnectInPlaceAsync(TabItem item)
     {
         if (item.Tag is not TerminalSession session || session.SourceHost is not { } host) return;
+        if (!await _reconnectGate.WaitAsync(0))
+        {
+            Log.Info($"忽略重复重连请求 {host.Username}@{host.Host}", "ssh");
+            return;
+        }
+        try
+        {
         Sessions.SelectedItem = item;
         if (IsActiveSession(session)) await Sftp.CleanupAsync();
 
@@ -847,7 +894,7 @@ public partial class MainWindow : Window
             session.Disconnect();
             ConnectAnim.Begin($"{host.Username}@{host.Host}:{host.Port}");
             var proxy = ProxyStore.Find(host.ProxyId);
-            await session.ConnectAsync(host.Host, host.Port, host.Username, pass ?? "", host.KeyPath, proxy);
+            await ConnectWithTransientRetryAsync(session, host, pass ?? "", proxy);
             LeaveQuickConnect(); // SSH 重连成功：先收 QC 再亮 HWND
             SyncDockSession();
             Monitor.SetConnected(true, host.Host);
@@ -860,6 +907,11 @@ public partial class MainWindow : Window
             ConnectAnim.Fail("重连失败");
             SetStatus("重连失败: " + ex.Message);
             RefreshConnState();
+        }
+        }
+        finally
+        {
+            _reconnectGate.Release();
         }
     }
 

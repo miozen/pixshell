@@ -1164,8 +1164,18 @@ public sealed class TerminalSession : IDisposable
         {
             OperationTimeout = TimeSpan.FromSeconds(30)
         };
-        sftp.Connect();
-        return sftp;
+        try
+        {
+            sftp.Connect();
+            return sftp;
+        }
+        catch
+        {
+            // RemoteFs 探测会将不支持 SFTP 的服务器回退到其他后端；失败客户端也必须
+            // 立即释放，不能等 GC 回收 socket，Dropbear 对短时间残留连接尤其敏感。
+            try { sftp.Dispose(); } catch { }
+            throw;
+        }
     }
 
     /// <summary>SCP 客户端（Dropbear 原生支持，无需 openssh-sftp-server）。</summary>

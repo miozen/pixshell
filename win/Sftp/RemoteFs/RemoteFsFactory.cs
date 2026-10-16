@@ -1,6 +1,8 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using PixShell.Logging;
+using Renci.SshNet;
 using Renci.SshNet.Common;
 
 namespace PixShell.Sftp.RemoteFs;
@@ -15,19 +17,27 @@ public static class RemoteFsFactory
     /// 连接远端并返回统一文件后端。
     /// 成功时返回 IRemoteFs 实例；全失败时抛 RemoteFsException。
     /// </summary>
-    public static Task<IRemoteFs> Connect(TerminalSession session)
-        => Task.Run(() => ConnectSync(session));
+    public static Task<IRemoteFs> Connect(TerminalSession session, CancellationToken cancellationToken = default)
+        => Task.Run(() => ConnectSync(session, cancellationToken), cancellationToken);
 
-    private static IRemoteFs ConnectSync(TerminalSession session)
+    private static IRemoteFs ConnectSync(TerminalSession session, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!session.Connected) throw new RemoteFsException(RemoteFsError.NotConnected, "SSH 会话未连接");
 
         // Tier 1: SSH.NET SftpClient（最快，标准 OpenSSH 环境）
+        SftpClient? sftp = null;
         try
         {
-            var sftp = session.CreateSftpClient();
+            sftp = session.CreateSftpClient();
+            cancellationToken.ThrowIfCancellationRequested();
             Log.Info("RemoteFs: SFTP (SSH.NET) 已连接", "sftp");
             return new SftpAdapter(sftp);
+        }
+        catch (OperationCanceledException)
+        {
+            try { sftp?.Dispose(); } catch { }
+            throw;
         }
         catch (SshConnectionException ex)
         {
@@ -39,17 +49,25 @@ public static class RemoteFsFactory
         }
 
         // Tier 2: ProcSftpClient（ssh exec sftp-server, 需要 openssh-sftp-server）
+        ProcSftpClient? proc = null;
         try
         {
-            var proc = new ProcSftpClient();
+            cancellationToken.ThrowIfCancellationRequested();
+            proc = new ProcSftpClient();
             var err = proc.Connect(session.HostName, session.HostPort(), session.HostUser(), null, session.HostKeyPath());
             if (err == null)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 Log.Info("RemoteFs: SFTP (ssh exec) 已连接", "sftp");
                 return new ProcAdapter(proc);
             }
             proc.Dispose();
             Log.Warn($"RemoteFs: exec sftp 失败 ({err})，回落 SCP …", "sftp");
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc?.Dispose(); } catch { }
+            throw;
         }
         catch (Exception ex)
         {
@@ -57,6 +75,7 @@ public static class RemoteFsFactory
         }
 
         // Tier 3: ScpBackend（SCP + shell, Dropbear 原生支持）
+        cancellationToken.ThrowIfCancellationRequested();
         var scp = new ScpBackend(session);
         Log.Info("RemoteFs: SCP (Dropbear) 已启用", "sftp");
         return new ScpAdapter(scp);
