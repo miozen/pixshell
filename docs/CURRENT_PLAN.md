@@ -28,7 +28,7 @@
 - W2a：统一传输任务、进度、失败重试入口和下载 `.part` 原子落盘已实现并形成未验证 `dev` 检查点；验证仍按用户约定集中执行。
 - W2b：单文件直传取消/续传、远端临时文件上传和 SCP 重启降级已实现；待集中验证。
 - W2c：打包传输的本地临时解压、冲突保护、任务取消和远端临时目录尽力清理已实现；待集中验证。
-- OpenWrt/Dropbear SSH 立即重连：已使活动会话在断开、原地重连、密码重试和关闭前先释放 SFTP；已使在途 SFTP 建连可被清理操作失效，并避免旧断连通知清掉已重连会话。根据新的实机复现，进一步使“打开远端文件”后台下载可被断开取消，且断开/重连等待该下载收尾，避免独立 SFTP 通道与新 SSH 握手并发；纯逻辑回归已通过，待 Windows + OpenWrt 实机重复验证。
+- OpenWrt/Dropbear SSH 立即重连：已使活动会话在断开、原地重连、密码重试和关闭前先释放 SFTP；已使在途 SFTP 建连可被清理操作失效，并避免旧断连通知清掉已重连会话。根据实机复现，进一步取消并等待编辑器下载和 SFTP 后端探测；修复 SFTP `Connect()` 抛出时未 Dispose 的失败客户端；串行化重复重连，并只对 pre-banner/TCP reset/abort 进行有限短退避重试。纯逻辑回归已通过，待 Windows + OpenWrt 实机重复验证。
 
 ## Remaining
 
@@ -55,6 +55,7 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 - F0 静态复核：已核对测试项目、`win/build.ps1 -Action test` 入口和 CI 触发范围。WSL 的 .NET 9.0.121 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release`，3/3 通过；完整 WPF 构建仍须 Windows 工具链或 GitHub Windows runner。
 - W1：第一部分曾在 WSL 运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，4/4 通过。`sortOrder` 与拖拽新增实现尚未执行集中验证；待测清单见 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md#w1-集中验证清单实现后执行)。
 - SSH/SFTP 生命周期：WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，9/9 通过（含清理使在途 SFTP 建连失效的回归测试）。该测试不覆盖 WPF、SSH.NET 或真实 Dropbear。
+- SSH/SFTP 最新可靠性修复：`84d5fa4` 已完成失败 `SftpClient` 的即时 Dispose、在途后端探测的取消/等待和有限重连退避；`git diff --check` 与 WSL 纯逻辑测试 9/9 通过。仍须 GitHub Windows WPF 编译及真实 OpenWrt 验证。
 - Windows 构建修复：GitHub Windows 构建日志在 W2 传输代码出现 15 条编译错误诊断，归结为三个根因：`uint` 条件表达式、`NotSupportedException` 命名空间、以及将 `SftpPanel` 误作 `MessageBox` 的 `Window` owner；已由 `de066bf` 最小修复。WSL 回归测试 9/9 通过，仍须手动触发 `dev` 的 Windows CI 完成 WPF 编译、publish 和安装包验证。
 - GitHub Actions run `38731668452`（`dev` 的 `a25dfd8`）的 Windows job 已通过 Restore、Test、self-contained Publish、资源检查、zip、Inno Setup 与 artifact 上传；该 run 早于本次“编辑器下载生命周期”工作区修复，因此不能作为后者的编译证据。
 
@@ -64,4 +65,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-手动触发 `build`，选择包含 `119358e` 的 `dev`，验证 Windows Test、publish、zip 和 setup；随后在 Windows + OpenWrt 重复“打开未修改文件后立即断开并重连”，并记录成功/失败次数及两端日志。
+手动触发 `build`，选择包含 `84d5fa4` 的 `dev`，验证 Windows Test、publish、zip 和 setup；随后在 Windows + OpenWrt 重复“打开未修改文件后立即断开并重连”，并记录成功/失败次数及两端日志。

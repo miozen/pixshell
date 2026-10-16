@@ -76,10 +76,10 @@
 ## D-011：Windows SSH 重连前先释放 SFTP
 
 - 状态：**Accepted**（2026-10-14）
-- 决策：Windows GUI 会话执行断开、原地重连、密码重试或关闭活动标签前，必须先释放该会话关联的 SFTP 客户端；清理操作必须使在途 SFTP 建连结果失效，旧的异步结果不得回填到新会话。原地重连期间，旧断连通知不得清理已经建立的新 SFTP 状态。
-- 理由：SFTP 使用独立 SSH 连接。对 OpenWrt Dropbear 等资源释放较敏感的服务端，先关闭终端而延后清理 SFTP 会扩大立即重连时的残留连接窗口；异步建连竞态还可能在清理后重新保留旧连接。
+- 决策：Windows GUI 会话执行断开、原地重连、密码重试或关闭活动标签前，必须先释放该会话关联的 SFTP 客户端，并取消、等待在途 SFTP 后端探测和编辑器下载结束；清理操作必须使在途 SFTP 建连结果失效，旧的异步结果不得回填到新会话。SFTP 连接失败路径必须立即 Dispose 新建客户端。原地重连期间串行化重复请求，并只对版本交换前关闭或 TCP reset/abort 最多进行三次短退避连接尝试。
+- 理由：SFTP 使用独立 SSH 连接。对 OpenWrt Dropbear 等资源释放较敏感的服务端，先关闭终端而延后清理 SFTP 会扩大立即重连时的残留连接窗口；异步探测竞态以及失败客户端未 Dispose 都可能令短时 socket/子会话延后回收。有限重试只缓解已知瞬态握手中断，不能掩盖认证和持久配置错误。
 - 约束：版本交换前被关闭只能记录为诊断线索，不能据此断言为客户端或 Dropbear 单方故障；必须以 Windows + OpenWrt 的重复手工复测和服务端日志确认。
-- 依据：[win/MainWindow.xaml.cs](../win/MainWindow.xaml.cs)、[win/SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs)、[win/Sftp/SftpConnectionEpoch.cs](../win/Sftp/SftpConnectionEpoch.cs)、[win/TerminalSession.cs](../win/TerminalSession.cs)。
+- 依据：[win/MainWindow.xaml.cs](../win/MainWindow.xaml.cs)、[win/SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs)、[win/Sftp/RemoteFs/RemoteFsFactory.cs](../win/Sftp/RemoteFs/RemoteFsFactory.cs)、[win/Sftp/SftpConnectionEpoch.cs](../win/Sftp/SftpConnectionEpoch.cs)、[win/TerminalSession.cs](../win/TerminalSession.cs)。
 
 ## D-012：W3 SSH 隧道管理不纳入本轮 Windows 改造
 
