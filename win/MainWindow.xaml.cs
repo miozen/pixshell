@@ -59,8 +59,11 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _monitorTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     /// <summary>PollMonitor 单飞：3s tick + 切 tab 可能重叠，避免并发 Exec mon 卡顿（GitHub #2 流畅度）。</summary>
     private int _pollMonitorBusy;
-    // 多个 UI 入口都可触发重连；同一时刻只允许一个重连流程，避免短时间建立重叠 SSH 连接。
-    private readonly SemaphoreSlim _reconnectGate = new(1, 1);
+    // 所有会话断开/重连/关标签共用同一生命周期门；必须在旧 SFTP 和 SSH 收尾后才允许新握手。
+    private readonly SemaphoreSlim _sessionLifecycleGate = new(1, 1);
+    private int _reconnectQueued;
+    private int _disconnectQueued;
+    private TerminalSession? _lifecycleDisconnectingSession;
     // CLI 状态 dirty-check（避免 3s 无意义刷 brush/Text）
     private int _cliStatusKey = -1;
     // 切 tab 后 PollMonitor 防抖：避免 SelectionChanged 立刻再 Exec mon 叠 3s tick
@@ -590,9 +593,17 @@ public partial class MainWindow : Window
 
         try
         {
-            session.ApplyTermScheme(Terminal.TermSchemeStore.Current);
-            var proxy = ProxyStore.Find(host.ProxyId);
-            await ConnectWithTransientRetryAsync(session, host, pass, proxy);
+            await _sessionLifecycleGate.WaitAsync();
+            try
+            {
+                session.ApplyTermScheme(Terminal.TermSchemeStore.Current);
+                var proxy = ProxyStore.Find(host.ProxyId);
+                await ConnectWithTransientRetryAsync(session, host, pass, proxy);
+            }
+            finally
+            {
+                _sessionLifecycleGate.Release();
+            }
             SyncDockSession();
             Monitor.SetConnected(true, host.Host);
             ConnectAnim.Succeed();
@@ -759,10 +770,18 @@ public partial class MainWindow : Window
                 if (remember) CredentialStore.SetPassword(host.Id, entered);
                 if (item.Tag is TerminalSession s)
                 {
-                    if (IsActiveSession(s)) await Sftp.CleanupAsync();
-                    s.Disconnect();
-                    var proxy = ProxyStore.Find(host.ProxyId);
-                    await ConnectWithTransientRetryAsync(s, host, entered, proxy);
+                    await _sessionLifecycleGate.WaitAsync();
+                    try
+                    {
+                        if (IsActiveSession(s)) await Sftp.CleanupAsync();
+                        DisconnectForLifecycle(s);
+                        var proxy = ProxyStore.Find(host.ProxyId);
+                        await ConnectWithTransientRetryAsync(s, host, entered, proxy);
+                    }
+                    finally
+                    {
+                        _sessionLifecycleGate.Release();
+                    }
                     LeaveQuickConnect(); // 重试成功：先收 QC 再亮 HWND
                     SyncDockSession();
                     Monitor.SetConnected(true, host.Host);
@@ -836,82 +855,85 @@ public partial class MainWindow : Window
     private async Task ReconnectInPlaceAsync(TabItem item)
     {
         if (item.Tag is not TerminalSession session || session.SourceHost is not { } host) return;
-        if (!await _reconnectGate.WaitAsync(0))
+        if (Interlocked.Exchange(ref _reconnectQueued, 1) != 0)
         {
             Log.Info($"忽略重复重连请求 {host.Username}@{host.Host}", "ssh");
             return;
         }
+        await _sessionLifecycleGate.WaitAsync();
         try
         {
-        Sessions.SelectedItem = item;
-        if (IsActiveSession(session)) await Sftp.CleanupAsync();
+            if (!Sessions.Items.Contains(item)) return;
+            Sessions.SelectedItem = item;
+            if (IsActiveSession(session)) await Sftp.CleanupAsync();
 
-        // 应用内 Web 终端：只刷新 WebView，不建 SSH
-        if (host.IsWebSsh || session.IsWebSsh)
-        {
+            // 应用内 Web 终端：只刷新 WebView，不建 SSH
+            if (host.IsWebSsh || session.IsWebSsh)
+            {
+                try
+                {
+                    await session.ReloadWebSshAsync().ConfigureAwait(true);
+                    SetStatus("Web 终端已刷新");
+                    RefreshConnState();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Web 终端刷新失败: {ex.Message}", "webssh");
+                    SetStatus("Web 终端刷新失败: " + ex.Message);
+                }
+                return;
+            }
+
+            // 本机终端：原地重启本地 shell，不弹密码。
+            if (host.IsLocal)
+            {
+                try
+                {
+                    DisconnectForLifecycle(session);
+                    ConnectAnim.Begin("本机终端");
+                    await session.ConnectLocalAsync();
+                    LeaveQuickConnect(); // 本机重连成功：先收 QC 再亮 HWND
+                    SyncDockSession();
+                    Monitor.SetConnected(true, "local");
+                    ConnectAnim.Succeed();
+                    RefreshConnState();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"本机终端重连失败: {ex.Message}", "session");
+                    ConnectAnim.Fail("重连失败");
+                    SetStatus("重连失败: " + ex.Message);
+                    RefreshConnState();
+                }
+                return;
+            }
+
+            var pass = session.Password ?? CredentialStore.GetPassword(host.Id) ?? "";
+
             try
             {
-                await session.ReloadWebSshAsync().ConfigureAwait(true);
-                SetStatus("Web 终端已刷新");
-                RefreshConnState();
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Web 终端刷新失败: {ex.Message}", "webssh");
-                SetStatus("Web 终端刷新失败: " + ex.Message);
-            }
-            return;
-        }
-
-        // 本机终端：原地重启本地 shell，不弹密码。
-        if (host.IsLocal)
-        {
-            try
-            {
-                session.Disconnect();
-                ConnectAnim.Begin("本机终端");
-                await session.ConnectLocalAsync();
-                LeaveQuickConnect(); // 本机重连成功：先收 QC 再亮 HWND
+                DisconnectForLifecycle(session);
+                ConnectAnim.Begin($"{host.Username}@{host.Host}:{host.Port}");
+                var proxy = ProxyStore.Find(host.ProxyId);
+                await ConnectWithTransientRetryAsync(session, host, pass ?? "", proxy);
+                LeaveQuickConnect(); // SSH 重连成功：先收 QC 再亮 HWND
                 SyncDockSession();
-                Monitor.SetConnected(true, "local");
+                Monitor.SetConnected(true, host.Host);
                 ConnectAnim.Succeed();
                 RefreshConnState();
             }
             catch (Exception ex)
             {
-                Log.Error($"本机终端重连失败: {ex.Message}", "session");
+                Log.Error($"重连失败 {host.Username}@{host.Host}: {ex.Message}", "session");
                 ConnectAnim.Fail("重连失败");
                 SetStatus("重连失败: " + ex.Message);
                 RefreshConnState();
             }
-            return;
-        }
-
-        var pass = session.Password ?? CredentialStore.GetPassword(host.Id) ?? "";
-
-        try
-        {
-            session.Disconnect();
-            ConnectAnim.Begin($"{host.Username}@{host.Host}:{host.Port}");
-            var proxy = ProxyStore.Find(host.ProxyId);
-            await ConnectWithTransientRetryAsync(session, host, pass ?? "", proxy);
-            LeaveQuickConnect(); // SSH 重连成功：先收 QC 再亮 HWND
-            SyncDockSession();
-            Monitor.SetConnected(true, host.Host);
-            ConnectAnim.Succeed();
-            RefreshConnState();
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"重连失败 {host.Username}@{host.Host}: {ex.Message}", "session");
-            ConnectAnim.Fail("重连失败");
-            SetStatus("重连失败: " + ex.Message);
-            RefreshConnState();
-        }
         }
         finally
         {
-            _reconnectGate.Release();
+            _sessionLifecycleGate.Release();
+            Volatile.Write(ref _reconnectQueued, 0);
         }
     }
 
@@ -931,22 +953,29 @@ public partial class MainWindow : Window
         foreach (var item in others) CloseTab(item);
     }
 
-    private void CloseTab(TabItem item)
+    private void CloseTab(TabItem item) => _ = CloseTabAsync(item);
+
+    private async Task CloseTabAsync(TabItem item)
     {
         var wasActive = ReferenceEquals(Sessions.SelectedItem, item);
-        if (item.Tag is TerminalSession session)
+        await _sessionLifecycleGate.WaitAsync();
+        try
         {
-            if (wasActive) Sftp.Cleanup();
-            session.StatusChanged -= OnSessionStatusChanged;
-            session.ConnectedChanged -= OnSessionConnectedChanged;
-            session.TitleChanged -= OnSessionTitleChanged;
-            try { session.Dispose(); } catch { }
+            if (item.Tag is TerminalSession session)
+            {
+                if (wasActive) await Sftp.CleanupAsync();
+                session.StatusChanged -= OnSessionStatusChanged;
+                session.ConnectedChanged -= OnSessionConnectedChanged;
+                session.TitleChanged -= OnSessionTitleChanged;
+                try { DisconnectForLifecycle(session); session.Dispose(); } catch { }
+            }
+            Sessions.Items.Remove(item);
+            // P1：关标签就清侧栏；空会话或关掉的是当前活动标签都要
+            if (Sessions.Items.Count == 0 || wasActive) ClearSessionSidePanels(releaseSftp: false);
+            UpdateWorkCenterVisibility();
+            SyncDockSession();
         }
-        Sessions.Items.Remove(item);
-        // P1：关标签就清侧栏；空会话或关掉的是当前活动标签都要
-        if (Sessions.Items.Count == 0 || wasActive) ClearSessionSidePanels();
-        UpdateWorkCenterVisibility();
-        SyncDockSession();
+        finally { _sessionLifecycleGate.Release(); }
     }
 
     /// <summary>刷新「连接状态」相关 UI：状态栏文案 + 侧栏红绿灯/断开·连接按钮。
@@ -993,6 +1022,7 @@ public partial class MainWindow : Window
     {
         if (!on && IsActiveSession(s))
         {
+            if (ReferenceEquals(s, _lifecycleDisconnectingSession)) return;
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (s.Connected) return; // 原地重连已完成时，忽略旧断连事件，不能清掉新 SFTP。
@@ -1703,9 +1733,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>P1：SSH 断开/关标签 → 清 SFTP + 关系统信息窗口。</summary>
-    private void ClearSessionSidePanels()
+    private void ClearSessionSidePanels(bool releaseSftp = true)
     {
-        try { Sftp.Cleanup(); } catch { }
+        if (releaseSftp) try { Sftp.Cleanup(); } catch { }
         try { DockPathText.Text = "远端未连接"; } catch { }
         try
         {
@@ -2385,13 +2415,34 @@ public partial class MainWindow : Window
         if (ActiveSession is { Connected: false }) { MenuReconnect(); return; }
         ShowConnectionManager();
     }
+    private void DisconnectForLifecycle(TerminalSession session)
+    {
+        _lifecycleDisconnectingSession = session;
+        try { session.Disconnect(); }
+        finally { _lifecycleDisconnectingSession = null; }
+    }
+
     private async void MenuDisconnect()
     {
-        await Sftp.CleanupAsync();
-        ActiveSession?.Disconnect();
-        ClearSessionSidePanels();   // P1：断开即清 SFTP + 系统信息
-        RefreshConnState();   // 侧栏红绿灯 + 断开/连接按钮跟着切
-        SetStatus("已断开");
+        var session = ActiveSession;
+        if (session == null || Interlocked.Exchange(ref _disconnectQueued, 1) != 0) return;
+        await _sessionLifecycleGate.WaitAsync();
+        try
+        {
+            if (IsActiveSession(session)) await Sftp.CleanupAsync();
+            DisconnectForLifecycle(session);
+            if (IsActiveSession(session))
+            {
+                ClearSessionSidePanels(releaseSftp: false);
+                RefreshConnState();
+                SetStatus("已断开");
+            }
+        }
+        finally
+        {
+            _sessionLifecycleGate.Release();
+            Volatile.Write(ref _disconnectQueued, 0);
+        }
     }
     /// <summary>重新连接：原地复用当前标签（见 ReconnectInPlaceAsync —— 旧实现会多开一个标签页）。</summary>
     private void MenuReconnect()

@@ -94,6 +94,7 @@ public partial class SftpPanel : UserControl
     // 打开编辑器前的下载与 SSH/SFTP 生命周期必须串起来。否则用户双击文件后立即
     // 断开，旧下载仍会占着独立 SFTP 连接，与下一次 SSH 握手并发（Dropbear 尤其敏感）。
     private readonly object _editorOpenLock = new();
+    private readonly SemaphoreSlim _cleanupGate = new(1, 1);
     private CancellationTokenSource _editorOpenCts = new();
     private Task? _editorOpenTask;
 
@@ -209,7 +210,7 @@ public partial class SftpPanel : UserControl
         var fs = _remoteFs;
         _remoteFs = null;
         try { fs?.Dispose(); } catch { }
-        Log.Info($"SFTP 已释放 gen={gen}", "sftp");
+        if (fs != null) Log.Info($"SFTP 已释放 gen={gen}", "sftp");
         Dispatcher.InvokeAsync(() => { if (_connectEpoch.IsCurrent(gen)) { RemoteTree.Items.Clear(); RemoteList.Items.Clear(); } });
     }
 
@@ -218,6 +219,13 @@ public partial class SftpPanel : UserControl
     /// 重连路径必须 await 本方法，避免 Dropbear 在旧文件通道尚未收尾时拒绝新 SSH 握手。
     /// </summary>
     public async Task CleanupAsync()
+    {
+        await _cleanupGate.WaitAsync().ConfigureAwait(true);
+        try { await CleanupCoreAsync().ConfigureAwait(true); }
+        finally { _cleanupGate.Release(); }
+    }
+
+    private async Task CleanupCoreAsync()
     {
         CancellationTokenSource cts;
         Task? editorOpen;
@@ -364,12 +372,16 @@ public partial class SftpPanel : UserControl
         StatusLabel.Text = $"打开 {r.Name} …";
         try
         {
-            await Task.Run(() =>
+            Log.Info($"读取远端文件开始 {remote}", "editor");
+            using (var localFs = File.Create(tmp))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                using (var localFs = File.Create(tmp)) fs.DownloadFile(remote, localFs, cancellationToken: cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
-            }, cancellationToken);
+                if (fs is SftpAdapter sftp)
+                    await sftp.DownloadFileAsync(remote, localFs, cancellationToken);
+                else
+                    await Task.Run(() => fs.DownloadFile(remote, localFs, cancellationToken: cancellationToken), cancellationToken);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            Log.Info($"读取远端文件完成 {remote}", "editor");
             if (cancellationToken.IsCancellationRequested || !ReferenceEquals(_remoteFs, fs) || !ReferenceEquals(_session, session)) return;
             string text;
             try { text = File.ReadAllText(tmp, Encoding.UTF8); }
@@ -383,6 +395,10 @@ public partial class SftpPanel : UserControl
         catch (OperationCanceledException)
         {
             Log.Info($"取消打开远端文件 {remote}（会话已切换或断开）", "editor");
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            Log.Info($"取消打开远端文件 {remote}（关闭 SFTP 后退出）", "editor");
         }
         catch (Exception ex)
         {

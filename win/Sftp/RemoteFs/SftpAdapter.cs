@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
+using PixShell.Logging;
 using Renci.SshNet;
 
 namespace PixShell.Sftp.RemoteFs;
@@ -61,6 +63,10 @@ internal class SftpAdapter : IRemoteFs
         Copy(remote, localStream, cancellationToken);
     }
 
+    /// <summary>编辑器读取走 SSH.NET 原生异步 API，使断开时的 CancellationToken 能传到底层 SFTP 请求。</summary>
+    public Task DownloadFileAsync(string remotePath, Stream localStream, CancellationToken cancellationToken) =>
+        _sftp.DownloadFileAsync(remotePath, localStream, cancellationToken);
+
     public void UploadFile(Stream localStream, string remotePath, long remoteOffset = 0, CancellationToken cancellationToken = default)
     {
         using var remote = _sftp.Open(remotePath, FileMode.OpenOrCreate, FileAccess.Write);
@@ -85,8 +91,10 @@ internal class SftpAdapter : IRemoteFs
 
     public void Close()
     {
+        Log.Info("SFTP client 关闭开始", "sftp");
         try { if (Connected) _sftp.Disconnect(); } catch { }
         try { _sftp.Dispose(); } catch { }
+        Log.Info("SFTP client 关闭完成", "sftp");
     }
 
     public void Dispose() => Close();
