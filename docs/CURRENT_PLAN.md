@@ -70,4 +70,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-提交并推送编辑器后立即重连补强到 `dev`；随后手动触发包含该提交的 `dev` `build`，并在 Windows + OpenWrt 按复现步骤完成重复验收、收集 PixShell 与 Dropbear 日志。
+手动触发包含 `28051a9` 的 `dev` `build`；随后在 Windows + OpenWrt 按复现步骤完成重复验收、收集 PixShell 与 Dropbear 日志。
