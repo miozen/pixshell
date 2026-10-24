@@ -31,6 +31,7 @@
 - OpenWrt/Dropbear SSH 立即重连：已完成 SFTP 优先释放、在途操作取消、失败客户端释放、生命周期串行化与有限瞬态重试。2026-10-18 实机观察表明，在 PixShell 无法连接后 FinalShell 也出现“connection is closed by foreign host”；故障不再满足“PixShell 独有”前提，本轮停止继续叠加客户端修复。该结论不等于已定位 OpenWrt 根因；仅在未来能稳定复现“同一时刻 FinalShell 正常而 PixShell 失败”时重开调查。
 - Windows 备份恢复：已确认并修复本地导入与 WebDAV 恢复只写回主机、遗漏 `QuickCommands`/`Settings` 的缺口。两入口现共用备份应用路径，命令按 ID 非破坏性合并并刷新面板，已识别设置恢复；新增纯逻辑回归测试，按用户要求等待集中运行。
 - W5：远端新建文件已实现：右键菜单与底部坞入口、单文件名校验、排他零字节创建、目录刷新后选中并打开既有编辑器；SSH.NET、Proc SFTP 和 SCP 后端均覆盖。并修复 Proc SFTP 的目录/删除此前静默空操作。Windows 手工与 WPF 编译仍待集中验证。
+- D-015：非空远端目录递归删除的二次确认已实现；Windows 手工验证仍待集中执行。
 
 ## Remaining
 
@@ -64,6 +65,7 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 - GitHub Actions run `38731668452`（`dev` 的 `a25dfd8`）的 Windows job 已通过 Restore、Test、self-contained Publish、资源检查、zip、Inno Setup 与 artifact 上传；该 run 早于本次“编辑器下载生命周期”工作区修复，因此不能作为后者的编译证据。
 - 备份恢复修复：已新增 `QuickCommandStore.MergeFromBackup` 的持久化回归测试；WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，10/10 通过。Windows WPF 构建及 WebDAV/本地导入手工验证待集中执行；`git diff --check` 已通过。
 - W5 远端新建文件：已新增纯逻辑名称校验测试；WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，20/20 通过，`git diff --check` 通过。`dotnet build win/PixShell.csproj -c Release --no-restore` 未能开始编译，因为当前 Linux SDK 缺少 `Microsoft.NET.Sdk.WindowsDesktop` targets；Windows WPF 编译和三后端手工验收仍待集中执行。
+- D-015 递归删除：WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，20/20 通过，`git diff --check` 通过。该纯逻辑测试项目不覆盖 WPF 对话框、真实 SSH.NET/Proc/SCP 递归删除，三后端的空/非空目录与取消路径待 Windows 手工验证。
 - GitHub Actions run `38904010347`（`dev` 的 `6a8d625`）中 Windows `win-x64` job 已通过 Restore、10 项测试、self-contained publish、资源检查、zip、Inno Setup、artifact 上传；工作流整体失败仅因两个 macOS job 均在既有的 Swift 包解析步骤失败，Windows 交付链本身通过。
 - 编辑器后立即重连补强：已运行 `dotnet vstest win/tests/bin/Release/net9.0/PixShell.Tests.dll --logger:"console;verbosity=normal"`，9/9 通过；`git diff --check` 通过。该程序集不覆盖 WPF UI、SSH.NET 实际 SFTP 下载或真实 Dropbear；本 Linux 环境仍不能编译 WPF。
 
@@ -73,4 +75,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-将 W5 检查点推送到 `origin/dev` 后，对当前 `dev` 执行剩余 Windows 集中手工验收：备份恢复、W0 失败保存路径、W1/W2/W4/W5 已实现功能；按结果更新验收记录。
+将 D-015 检查点推送到 `origin/dev` 后，对当前 `dev` 执行剩余 Windows 集中手工验收：备份恢复、W0 失败保存路径、W1/W2/W4/W5 及空/非空目录删除已实现功能；按结果更新验收记录。

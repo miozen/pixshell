@@ -101,3 +101,10 @@
 - 决策：Windows 文件管理器新增“新建文件…”，允许任意扩展名和无扩展名文件；仅在当前远端目录创建单个空文件，禁止输入路径、`.`、`..`、NUL 与空白名称。创建不得覆盖同名文件或目录；成功后刷新目录并使用既有图形编辑器打开。SSH.NET、系统 SFTP/Proc 与 SCP 回退均须实现同一“不覆盖创建”语义，不能借用会覆盖的上传流程。
 - 理由：满足 FinalShell 式高频文件维护工作流，同时保留 W2 的完整目标保护原则，避免“新建”意外破坏远端现有内容。
 - 依据：用户于 2026-10-24 确认；[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)、[win/Sftp/RemoteFs/IRemoteFs.cs](../win/Sftp/RemoteFs/IRemoteFs.cs)。
+
+## D-015：Windows 非空远端目录的递归删除确认
+
+- 状态：**Accepted**（2026-10-24）
+- 决策：删除空目录直接执行；删除前发现目录非空时，必须明确显示风险并要求第二次确认。确认后才递归删除该目录内容及目录本身；无法列出目录内容时必须取消，不得猜测为空或直接递归。文件删除与取消行为保持不变。
+- 理由：SFTP 的 `RMDIR` 仅能删除空目录，而 SCP 回退此前使用 `rm -rf`，造成同一 UI 操作的后端依赖行为。二次确认使行为一致、可见并降低误删风险。
+- 依据：用户于 2026-10-24 确认；[win/SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs)、[win/Sftp/RemoteFs/IRemoteFs.cs](../win/Sftp/RemoteFs/IRemoteFs.cs)。

@@ -35,6 +35,7 @@ internal class SftpAdapter : IRemoteFs
             {
                 Name = f.Name,
                 IsDir = f.IsDirectory,
+                IsLink = f.IsSymbolicLink,
                 Size = f.IsDirectory ? 0 : f.Length,
                 Mtime = f.LastWriteTime,
                 Perms = (uint)(f.IsDirectory ? 0x41ED : 0x81A4),

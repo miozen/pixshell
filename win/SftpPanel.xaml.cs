@@ -509,15 +509,63 @@ public partial class SftpPanel : UserControl
         if (rows.Count == 0) return;
         var preview = string.Join("\n", rows.Take(6).Select(r => r.Name));
         if (MessageBox.Show($"删除 {rows.Count} 项？\n{preview}", "PixShell", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-        await Task.Run(() =>
+
+        List<FsRow> nonEmptyDirectories;
+        try
         {
+            nonEmptyDirectories = await Task.Run(() => rows
+                .Where(r => r.IsDir && fs.ListDirectory(JoinRemote(_remoteDir, r.Name)).Count != 0)
+                .ToList());
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = "无法确认目录内容，已取消删除: " + ex.Message;
+            return;
+        }
+
+        if (nonEmptyDirectories.Count != 0)
+        {
+            var directoryPreview = string.Join("\n", nonEmptyDirectories.Take(6).Select(r => r.Name));
+            var result = MessageBox.Show(
+                $"以下目录不为空：\n{directoryPreview}\n\n递归删除将永久删除其中的全部内容。是否继续？",
+                "确认递归删除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes) return;
+        }
+
+        var recursivePaths = nonEmptyDirectories
+            .Select(r => JoinRemote(_remoteDir, r.Name))
+            .ToHashSet(StringComparer.Ordinal);
+        var failures = await Task.Run(() =>
+        {
+            var errors = new List<string>();
             foreach (var r in rows)
             {
-                try { fs.Delete(JoinRemote(_remoteDir, r.Name), r.IsDir); }
-                catch (Exception ex) { Dispatcher.InvokeAsync(() => StatusLabel.Text = "删除失败: " + ex.Message); }
+                var path = JoinRemote(_remoteDir, r.Name);
+                try
+                {
+                    if (r.IsDir && recursivePaths.Contains(path)) DeleteDirectoryRecursive(fs, path);
+                    else fs.Delete(path, r.IsDir);
+                }
+                catch (Exception ex) { errors.Add($"{r.Name}: {ex.Message}"); }
             }
+            return errors;
         });
-        LoadRemoteDetail(_remoteDir);
+        await LoadRemoteDetail(_remoteDir);
+        StatusLabel.Text = failures.Count == 0
+            ? "删除完成"
+            : "删除失败: " + string.Join("；", failures.Take(3));
+    }
+
+    /// <summary>仅在用户二次确认非空目录后调用。逐层列举并删除，复用所有远端后端的基础删除语义。</summary>
+    private static void DeleteDirectoryRecursive(IRemoteFs fs, string path)
+    {
+        foreach (var entry in fs.ListDirectory(path))
+        {
+            var childPath = JoinRemote(path, entry.Name);
+            if (entry.IsDir && !entry.IsLink) DeleteDirectoryRecursive(fs, childPath);
+            else fs.Delete(childPath, isDir: false);
+        }
+        fs.Delete(path, isDir: true);
     }
 
     public async Task Rename()
