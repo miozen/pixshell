@@ -45,6 +45,7 @@ internal class ScpAdapter : IRemoteFs
         finally { try { File.Delete(tmp); } catch { } }
     }
 
+    public void CreateEmptyFile(string path) => _scp.CreateEmptyFile(path);
     public void MakeDirectory(string path) => _scp.MakeDirectory(path);
     public void Delete(string path, bool isDir) => _scp.Delete(path, isDir);
     public void Rename(string from, string to) => _scp.Rename(from, to);

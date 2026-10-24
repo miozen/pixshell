@@ -206,6 +206,7 @@
                                         <Button Content="&#xE72C;" Style="{StaticResource GlyphIconButton}" ToolTip="刷新" Click="SftpRefresh_Click"/>
                                         <Button Content="&#xE896;" Style="{StaticResource GlyphIconButton}" ToolTip="下载到本地" Click="SftpDownload_Click"/>
                                         <Button Content="&#xE898;" Style="{StaticResource GlyphIconButton}" ToolTip="上传到远端" Click="SftpUpload_Click"/>
+                                        <Button Content="&#xE7C3;" Style="{StaticResource GlyphIconButton}" ToolTip="新建文件" Click="SftpNewFile_Click"/>
                                         <Button Content="&#xE8F4;" Style="{StaticResource GlyphIconButton}" ToolTip="新建目录" Click="SftpMkdir_Click"/>
                                         <Button Content="&#xE74D;" Foreground="{DynamicResource BrushErr}"
                                                 Style="{StaticResource GlyphIconButton}" ToolTip="删除" Click="SftpDelete_Click"/>

@@ -85,6 +85,11 @@ internal class SftpAdapter : IRemoteFs
         }
     }
 
+    public void CreateEmptyFile(string path)
+    {
+        using var file = _sftp.Open(path, FileMode.CreateNew, FileAccess.Write);
+    }
+
     public void MakeDirectory(string path) => _sftp.CreateDirectory(path);
     public void Delete(string path, bool isDir) { if (isDir) _sftp.DeleteDirectory(path); else _sftp.DeleteFile(path); }
     public void Rename(string from, string to) => _sftp.RenameFile(from, to);

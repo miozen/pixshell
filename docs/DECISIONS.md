@@ -94,3 +94,10 @@
 - 决策：Windows 本地导入和 WebDAV 恢复必须共用同一条 v1 备份包应用路径：主机与快捷命令按 ID 合并（同 ID 以备份更新、缺失项新增、不删除仅存在于本机的项），刷新命令面板，并恢复备份包已声明且可识别的主题、终端配色与终端背景设置。密码仍不进入备份包。旧版纯主机数组导入保持兼容，且不虚构不存在的命令或设置。
 - 理由：`BackupBundle` 已将 `Hosts`、`QuickCommands` 与 `Settings` 定义为同一备份快照；此前两个恢复入口只应用主机，导致“下载/导入成功但命令未出现”的已证实数据恢复缺口。与既有主机 `Upsert` 一致的合并语义避免恢复时静默删除本机独有命令。
 - 依据：[win/Store/BackupBundle.cs](../win/Store/BackupBundle.cs)、[win/Store/QuickCommands.cs](../win/Store/QuickCommands.cs)、[win/MainWindow.xaml.cs](../win/MainWindow.xaml.cs)。
+
+## D-014：Windows 远端新建文件的安全语义
+
+- 状态：**Accepted**（2026-10-24）
+- 决策：Windows 文件管理器新增“新建文件…”，允许任意扩展名和无扩展名文件；仅在当前远端目录创建单个空文件，禁止输入路径、`.`、`..`、NUL 与空白名称。创建不得覆盖同名文件或目录；成功后刷新目录并使用既有图形编辑器打开。SSH.NET、系统 SFTP/Proc 与 SCP 回退均须实现同一“不覆盖创建”语义，不能借用会覆盖的上传流程。
+- 理由：满足 FinalShell 式高频文件维护工作流，同时保留 W2 的完整目标保护原则，避免“新建”意外破坏远端现有内容。
+- 依据：用户于 2026-10-24 确认；[WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md)、[win/Sftp/RemoteFs/IRemoteFs.cs](../win/Sftp/RemoteFs/IRemoteFs.cs)。

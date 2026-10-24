@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1、W2a–W2c 与 W4a–W4c 已完成实现；OpenWrt/Dropbear 立即重连的首轮修复已完成，编辑器打开后立即重连的补强实现待 Windows 实机复测；Windows 备份完整恢复修复已实现并待集中验证；W3 已排除。**
+**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1、W2a–W2c、W4a–W4c 与 W5 已完成实现；OpenWrt/Dropbear 立即重连的客户端补强已完成，本轮不再作为 PixShell 独有故障继续修复；Windows 备份完整恢复修复已实现并待集中验证；W3 已排除。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -28,14 +28,16 @@
 - W2a：统一传输任务、进度、失败重试入口和下载 `.part` 原子落盘已实现并形成未验证 `dev` 检查点；验证仍按用户约定集中执行。
 - W2b：单文件直传取消/续传、远端临时文件上传和 SCP 重启降级已实现；待集中验证。
 - W2c：打包传输的本地临时解压、冲突保护、任务取消和远端临时目录尽力清理已实现；待集中验证。
-- OpenWrt/Dropbear SSH 立即重连：已使活动会话在断开、原地重连、密码重试和关闭前先释放 SFTP；已使在途 SFTP 建连可被清理操作失效，并避免旧断连通知清掉已重连会话。根据实机复现，进一步取消并等待编辑器下载和 SFTP 后端探测；修复 SFTP `Connect()` 抛出时未 Dispose 的失败客户端；串行化重复重连，并只对 pre-banner/TCP reset/abort 进行有限短退避重试。最新补强将关闭标签、新建会话、手动断开、原地重连和密码重试串入同一生命周期门；编辑器读取改为 SSH.NET 原生可取消异步下载，并为 SFTP 关闭增加起止诊断日志。纯逻辑回归已通过，待 Windows + OpenWrt 实机重复验证。
+- OpenWrt/Dropbear SSH 立即重连：已完成 SFTP 优先释放、在途操作取消、失败客户端释放、生命周期串行化与有限瞬态重试。2026-10-18 实机观察表明，在 PixShell 无法连接后 FinalShell 也出现“connection is closed by foreign host”；故障不再满足“PixShell 独有”前提，本轮停止继续叠加客户端修复。该结论不等于已定位 OpenWrt 根因；仅在未来能稳定复现“同一时刻 FinalShell 正常而 PixShell 失败”时重开调查。
 - Windows 备份恢复：已确认并修复本地导入与 WebDAV 恢复只写回主机、遗漏 `QuickCommands`/`Settings` 的缺口。两入口现共用备份应用路径，命令按 ID 非破坏性合并并刷新面板，已识别设置恢复；新增纯逻辑回归测试，按用户要求等待集中运行。
+- W5：远端新建文件已实现：右键菜单与底部坞入口、单文件名校验、排他零字节创建、目录刷新后选中并打开既有编辑器；SSH.NET、Proc SFTP 和 SCP 后端均覆盖。并修复 Proc SFTP 的目录/删除此前静默空操作。Windows 手工与 WPF 编译仍待集中验证。
 
 ## Remaining
 
 - 在适当的可控环境补测 W0 的“上传失败保留编辑内容”路径；该项暂缓不等于验收通过。
-- 在 Windows 上对 OpenWrt Dropbear 重复执行“连接 → SFTP 打开未修改文件 → 断开 → 立即重连”，并查看 PixShell SSH/SFTP 日志与 OpenWrt `logread -e dropbear`；同时回归 Alpine。特别记录 `SFTP client 关闭开始/完成` 与下一次 SSH 建连的时间差。该验证是 D-011 的确认依据，未完成前不得宣称问题已在真实设备解决。
-- W3 已由 D-012 排除；W1、W2 与 W4 的全部已确认实现事项已完成，待按用户约定统一验证。
+- OpenWrt/Dropbear 重连问题本轮按外部/服务端或链路共享状态处理并结束客户端修复；未来仅在存在可重复的 PixShell/FinalShell 对照差异时，补齐 Dropbear、conntrack/防火墙和代理路径证据后再重开。
+- W3 已由 D-012 排除；W1、W2、W4 与 W5 的全部已确认实现事项已完成，待按用户约定统一验证。
+- 集中验证时覆盖 W5：`.env`、`config.json`、无扩展名和 Unicode 文件名；同名文件/目录不覆盖；权限失败反馈；三种远端后端不静默成功；创建后能打开、保存并在刷新后可见。
 - 集中验证时覆盖 v1 本地导入与 WebDAV 恢复：新增/更新的快捷命令应立即显示并在重启后保留；本机独有命令不得被删除；旧纯主机数组仍可导入；有效主题、终端配色和背景设置应恢复，密码不得出现在备份包或日志中。
 - 作为独立后续事项评估并设计 macOS 内置 SSH/SFTP 的 host-key 验证统一策略；不得在未覆盖 OpenSSH 回退和两端行为前局部修改。
 - 在后续变更中逐步扩大最小自动化测试，优先桥路由、持久化和 SSH 状态机等非 UI 核心逻辑。
@@ -61,6 +63,7 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 - Windows 构建修复：GitHub Windows 构建日志在 W2 传输代码出现 15 条编译错误诊断，归结为三个根因：`uint` 条件表达式、`NotSupportedException` 命名空间、以及将 `SftpPanel` 误作 `MessageBox` 的 `Window` owner；已由 `de066bf` 最小修复。WSL 回归测试 9/9 通过，仍须手动触发 `dev` 的 Windows CI 完成 WPF 编译、publish 和安装包验证。
 - GitHub Actions run `38731668452`（`dev` 的 `a25dfd8`）的 Windows job 已通过 Restore、Test、self-contained Publish、资源检查、zip、Inno Setup 与 artifact 上传；该 run 早于本次“编辑器下载生命周期”工作区修复，因此不能作为后者的编译证据。
 - 备份恢复修复：已新增 `QuickCommandStore.MergeFromBackup` 的持久化回归测试；WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，10/10 通过。Windows WPF 构建及 WebDAV/本地导入手工验证待集中执行；`git diff --check` 已通过。
+- W5 远端新建文件：已新增纯逻辑名称校验测试；WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，20/20 通过，`git diff --check` 通过。`dotnet build win/PixShell.csproj -c Release --no-restore` 未能开始编译，因为当前 Linux SDK 缺少 `Microsoft.NET.Sdk.WindowsDesktop` targets；Windows WPF 编译和三后端手工验收仍待集中执行。
 - GitHub Actions run `38904010347`（`dev` 的 `6a8d625`）中 Windows `win-x64` job 已通过 Restore、10 项测试、self-contained publish、资源检查、zip、Inno Setup、artifact 上传；工作流整体失败仅因两个 macOS job 均在既有的 Swift 包解析步骤失败，Windows 交付链本身通过。
 - 编辑器后立即重连补强：已运行 `dotnet vstest win/tests/bin/Release/net9.0/PixShell.Tests.dll --logger:"console;verbosity=normal"`，9/9 通过；`git diff --check` 通过。该程序集不覆盖 WPF UI、SSH.NET 实际 SFTP 下载或真实 Dropbear；本 Linux 环境仍不能编译 WPF。
 
@@ -70,4 +73,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-手动触发包含 `28051a9` 的 `dev` `build`；随后在 Windows + OpenWrt 按复现步骤完成重复验收、收集 PixShell 与 Dropbear 日志。
+将 W5 检查点推送到 `origin/dev` 后，对当前 `dev` 执行剩余 Windows 集中手工验收：备份恢复、W0 失败保存路径、W1/W2/W4/W5 已实现功能；按结果更新验收记录。

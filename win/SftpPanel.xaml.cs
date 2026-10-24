@@ -463,6 +463,41 @@ public partial class SftpPanel : UserControl
         catch (Exception ex) { StatusLabel.Text = "新建失败: " + ex.Message; }
     }
 
+    public async Task NewFile()
+    {
+        var fs = _remoteFs;
+        if (fs is not { Connected: true })
+        {
+            StatusLabel.Text = "请先连接远端";
+            return;
+        }
+
+        var requested = Prompt("新建远端文件名：");
+        if (requested == null) return;
+        if (!RemoteFileName.TryNormalize(requested, out var name, out var error))
+        {
+            StatusLabel.Text = error;
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => fs.CreateEmptyFile(JoinRemote(_remoteDir, name)));
+            await LoadRemoteDetail(_remoteDir);
+            var created = _remoteEntries.FirstOrDefault(row => !row.IsDir && row.Name == name);
+            if (created != null)
+            {
+                RemoteList.SelectedItem = created;
+                RemoteList.ScrollIntoView(created);
+                BeginOpenRemoteFileForEdit(created);
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = "新建文件失败: " + ex.Message;
+        }
+    }
+
     /// <summary>右键/键盘 Delete 目标条目：优先当前多选（⌘/Shift 多选，对齐 mac 版 §5）。</summary>
     private List<FsRow> TargetRemoteRows() => RemoteList.SelectedItems.Cast<FsRow>().ToList();
 
@@ -1083,6 +1118,7 @@ public partial class SftpPanel : UserControl
     private void CtxOpen_Click(object sender, RoutedEventArgs e) => CtxOpenAction();
     private void CtxDownload_Click(object sender, RoutedEventArgs e) => Download();
     private void CtxUpload_Click(object sender, RoutedEventArgs e) => Upload();
+    private void CtxNewFile_Click(object sender, RoutedEventArgs e) => NewFile();
     private void CtxMkdir_Click(object sender, RoutedEventArgs e) => Mkdir();
     private void CtxRename_Click(object sender, RoutedEventArgs e) => Rename();
     private void CtxDelete_Click(object sender, RoutedEventArgs e) => Delete();

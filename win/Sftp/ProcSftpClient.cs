@@ -169,6 +169,48 @@ public class ProcSftpClient : IDisposable
         }
     }
 
+    public void CreateEmptyFile(string path)
+    {
+        if (!Connected) throw new InvalidOperationException("Not connected");
+        lock (_lock)
+        {
+            var id = ++_reqId;
+            // SSH_FXF_WRITE | SSH_FXF_CREAT | SSH_FXF_EXCL: never truncate or overwrite an existing path.
+            SendPacket(3, BuildPayload(id, pw => { WriteSFTPString(pw, path); pw.WriteU32BE(0x2A); pw.WriteU32BE(0); }));
+            var response = ReadPayload();
+            if (response.Length < 5 || response[0] != 102)
+                ThrowStatus(response, "创建文件");
+
+            var handle = SliceBytes(response, 5);
+            if (handle.Length == 0) throw new IOException("创建文件失败：服务器未返回文件句柄");
+            var closeId = ++_reqId;
+            SendPacket(4, BuildPayload(closeId, pw => WriteBytes(pw, handle)));
+            RequireOk(ReadPayload(), "关闭新文件");
+        }
+    }
+
+    public void MakeDirectory(string path)
+    {
+        if (!Connected) throw new InvalidOperationException("Not connected");
+        lock (_lock)
+        {
+            var id = ++_reqId;
+            SendPacket(14, BuildPayload(id, pw => { WriteSFTPString(pw, path); pw.WriteU32BE(0); }));
+            RequireOk(ReadPayload(), "创建目录");
+        }
+    }
+
+    public void Delete(string path, bool isDir)
+    {
+        if (!Connected) throw new InvalidOperationException("Not connected");
+        lock (_lock)
+        {
+            var id = ++_reqId;
+            SendPacket(isDir ? (byte)15 : (byte)13, BuildPayload(id, pw => WriteSFTPString(pw, path)));
+            RequireOk(ReadPayload(), isDir ? "删除目录" : "删除文件");
+        }
+    }
+
     public void DownloadFile(string remotePath, Stream localStream, long remoteOffset = 0, CancellationToken cancellationToken = default)
     {
         if (_stdin == null || _stdout == null) throw new InvalidOperationException("Not connected");
@@ -234,6 +276,18 @@ public class ProcSftpClient : IDisposable
     private void SendPacket(byte type, byte[] payload) { var f = new byte[5 + payload.Length]; WriteU32BE(f, 0, (uint)(1 + payload.Length)); f[4] = type; Array.Copy(payload, 0, f, 5, payload.Length); _stdin!.Write(f); _stdin.Flush(); }
     private static byte[] SliceBytes(byte[] src, int off) { if (off + 4 > src.Length) return Array.Empty<byte>(); int len = (int)ReadU32BE(src, off); var d = new byte[len]; Array.Copy(src, off + 4, d, 0, Math.Min(len, src.Length - off - 4)); return d; }
     private static byte[] BuildPayload(uint id, Action<SftpWriter> write) { var w = new SftpWriter(); w.WriteU32(id); write(w); return w.ToArray(); }
+
+    private static void RequireOk(byte[] response, string action)
+    {
+        if (response.Length >= 9 && response[0] == 101 && ReadU32BE(response, 5) == 0) return;
+        ThrowStatus(response, action);
+    }
+
+    private static void ThrowStatus(byte[] response, string action)
+    {
+        var status = response.Length >= 9 && response[0] == 101 ? ReadU32BE(response, 5) : uint.MaxValue;
+        throw new IOException($"SFTP {action}失败 (status {status})");
+    }
 
     // === Numeric I/O ===
     private static uint ReadU32BE(byte[] b, int o) => ((uint)b[o] << 24) | ((uint)b[o + 1] << 16) | ((uint)b[o + 2] << 8) | b[o + 3];

@@ -21,5 +21,6 @@
     <Compile Include="..\Store\CommandSuggestions.cs" Link="Store\CommandSuggestions.cs" />
     <Compile Include="..\Store\TransferTasks.cs" Link="Store\TransferTasks.cs" />
     <Compile Include="..\Sftp\SftpConnectionEpoch.cs" Link="Sftp\SftpConnectionEpoch.cs" />
+    <Compile Include="..\Sftp\RemoteFileName.cs" Link="Sftp\RemoteFileName.cs" />
   </ItemGroup>
 </Project>

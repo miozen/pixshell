@@ -25,8 +25,9 @@ internal class ProcAdapter : IRemoteFs
     public List<FsRow>? ListTreeChildren(string path) => null;
     public void DownloadFile(string remotePath, Stream localStream, long remoteOffset = 0, CancellationToken cancellationToken = default) => _proc.DownloadFile(remotePath, localStream, remoteOffset, cancellationToken);
     public void UploadFile(Stream localStream, string remotePath, long remoteOffset = 0, CancellationToken cancellationToken = default) => _proc.UploadFile(localStream, remotePath, remoteOffset, cancellationToken);
-    public void MakeDirectory(string path) { /* ProcSftpClient 暂未实现 */ }
-    public void Delete(string path, bool isDir) { }
+    public void CreateEmptyFile(string path) => _proc.CreateEmptyFile(path);
+    public void MakeDirectory(string path) => _proc.MakeDirectory(path);
+    public void Delete(string path, bool isDir) => _proc.Delete(path, isDir);
     public void Rename(string from, string to) => _proc.Rename(from, to);
     public void Close() => _proc.Close();
     public void Dispose() => _proc.Dispose();

@@ -1968,6 +1968,7 @@ public partial class MainWindow : Window
     private void SftpRefresh_Click(object sender, RoutedEventArgs e) => Sftp.Refresh();
     private void SftpDownload_Click(object sender, RoutedEventArgs e) => Sftp.Download();
     private void SftpUpload_Click(object sender, RoutedEventArgs e) => Sftp.Upload();
+    private void SftpNewFile_Click(object sender, RoutedEventArgs e) => Sftp.NewFile();
     private void SftpMkdir_Click(object sender, RoutedEventArgs e) => Sftp.Mkdir();
     private void SftpDelete_Click(object sender, RoutedEventArgs e) => Sftp.Delete();
     private void SftpToggleLocal_Click(object sender, RoutedEventArgs e) => Sftp.ToggleLocal();

@@ -92,6 +92,7 @@
                         <MenuItem Header="下载" Click="CtxDownload_Click"/>
                         <Separator/>
                         <MenuItem Header="上传到此目录…" Click="CtxUpload_Click"/>
+                        <MenuItem Header="新建文件…" Click="CtxNewFile_Click"/>
                         <MenuItem Header="新建目录…" Click="CtxMkdir_Click"/>
                         <MenuItem Header="重命名…" Click="CtxRename_Click"/>
                         <MenuItem Header="删除" Click="CtxDelete_Click"/>

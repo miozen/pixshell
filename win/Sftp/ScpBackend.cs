@@ -98,6 +98,23 @@ public class ScpBackend
 
     // ==================== Shell operations ====================
 
+    public void CreateEmptyFile(string path)
+    {
+        const string exists = "__PIXSHELL_FILE_EXISTS__";
+        const string created = "__PIXSHELL_FILE_CREATED__";
+        const string failed = "__PIXSHELL_FILE_CREATE_FAILED__";
+        var escapedPath = EscapeArg(path);
+        var output = _session.ExecAsync(
+            $"if [ -e {escapedPath} ]; then printf '{exists}'; " +
+            $"elif (set -C; : > {escapedPath}) 2>/dev/null; then printf '{created}'; " +
+            $"else printf '{failed}'; fi").GetAwaiter().GetResult();
+
+        if (output.Contains(created, StringComparison.Ordinal)) return;
+        if (output.Contains(exists, StringComparison.Ordinal))
+            throw new IOException("远端已存在同名文件或目录");
+        throw new IOException("远端创建文件失败（权限不足或服务器不支持）");
+    }
+
     public void MakeDirectory(string path)
     {
         _session.ExecAsync($"mkdir -p {EscapeArg(path)}").GetAwaiter().GetResult();

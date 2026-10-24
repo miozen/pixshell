@@ -199,3 +199,31 @@ public sealed class SftpConnectionEpochTests
         Assert.True(epoch.IsCurrent(cleanup));
     }
 }
+
+public sealed class RemoteFileNameTests
+{
+    [Theory]
+    [InlineData("backup")]
+    [InlineData("config.json")]
+    [InlineData(".env")]
+    [InlineData("脚本.sh")]
+    public void AllowsAnySingleFileNameFormat(string requested)
+    {
+        Assert.True(PixShell.Sftp.RemoteFileName.TryNormalize(requested, out var name, out var error));
+        Assert.Equal(requested, name);
+        Assert.Equal(string.Empty, error);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("nested/file.txt")]
+    [InlineData("nested\\file.txt")]
+    public void RejectsEmptySpecialAndPathNames(string requested)
+    {
+        Assert.False(PixShell.Sftp.RemoteFileName.TryNormalize(requested, out _, out var error));
+        Assert.NotEqual(string.Empty, error);
+    }
+}

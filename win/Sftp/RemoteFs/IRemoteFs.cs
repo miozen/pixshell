@@ -30,6 +30,8 @@ public interface IRemoteFs : IDisposable
 
     // ---- 元操作 ----
 
+    /// <summary>以独占方式创建空文件；目标已存在时必须失败，绝不覆盖。</summary>
+    void CreateEmptyFile(string path);
     void MakeDirectory(string path);
     void Delete(string path, bool isDir);
     void Rename(string from, string to);
