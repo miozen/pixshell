@@ -13,6 +13,8 @@ permissions:
 
 jobs:
   build:
+    # Superseded by build.yml platform-specific tag releases.
+    if: ${{ false }}
     name: Windows x64
     runs-on: windows-2025
     defaults:

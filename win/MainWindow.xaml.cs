@@ -2463,43 +2463,35 @@ public partial class MainWindow : Window
     {
         const string repo = "miozen/pixshell";
         const string releasesUrl = "https://github.com/" + repo + "/releases";
-        const string apiUrl = "https://api.github.com/repos/" + repo + "/releases/latest";
+        const string apiUrl = "https://api.github.com/repos/" + repo + "/releases?per_page=100&page=";
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
             http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/vnd.github+json");
             http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "PixShell/" + AppVersion);
-            using var resp = await http.GetAsync(apiUrl);
-            if (!resp.IsSuccessStatusCode)
+            var releases = await PixShell.Store.ReleaseSelection.ReadPages(async pageNumber =>
             {
-                Log.Warn($"检查更新 HTTP {(int)resp.StatusCode}", "update");
-                SetStatus("无法获取更新信息");
-                var fail = MessageBox.Show(this,
-                    "无法获取更新信息（网络或仓库不可达）。\n是否打开发行页？",
-                    "检查更新", MessageBoxButton.YesNo, MessageBoxImage.Information);
-                if (fail == MessageBoxResult.Yes)
-                    Process.Start(new ProcessStartInfo(releasesUrl) { UseShellExecute = true });
-                return;
-            }
-            var json = await resp.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            var tag = root.TryGetProperty("tag_name", out var tn) ? tn.GetString() ?? ""
-                    : root.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "";
-            var latest = NormalizeVersion(tag);
-            if (string.IsNullOrEmpty(latest))
+                using var response = await http.GetAsync(apiUrl + pageNumber);
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadAsStringAsync();
+            });
+            using var all = JsonDocument.Parse(JsonSerializer.Serialize(releases));
+            var selected = PixShell.Store.ReleaseSelection.Choose(all.RootElement, "windows");
+            if (selected == null)
             {
                 SetStatus("无法获取更新信息");
                 MessageBox.Show(this, "无法解析远端版本号。", "检查更新",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
+            var (latest, root) = selected.Value;
+            var tag = root.GetProperty("tag_name").GetString() ?? "";
 
             // 该次 release 页（优先 html_url）
             string? releasePage = null;
             if (root.TryGetProperty("html_url", out var hu)) releasePage = hu.GetString();
             if (string.IsNullOrEmpty(releasePage))
-                releasePage = $"https://github.com/{repo}/releases/tag/{(tag.StartsWith("v") ? tag : "v" + latest)}";
+                releasePage = $"https://github.com/{repo}/releases/tag/{tag}";
 
             // 匹配 win-x64 安装包 / zip
             string? assetName = null, assetUrl = null;

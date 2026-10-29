@@ -200,6 +200,39 @@ public sealed class SftpConnectionEpochTests
     }
 }
 
+public sealed class ReleaseSelectionTests
+{
+    [Fact]
+    public async Task ReadsSecondPageAndSelectsLegacyWindowsRelease()
+    {
+        var calls = new List<int>();
+        var first = JsonSerializer.Serialize(Enumerable.Range(0, 100).Select(_ => new { tag_name = "macos-v2.0.0", assets = Array.Empty<object>() }));
+        const string second = "[{\"tag_name\":\"v0.3.0\",\"assets\":[{\"name\":\"PixShell-0.3.0-win-x64.zip\"}]}]";
+        var pages = await PixShell.Store.ReleaseSelection.ReadPages(page => { calls.Add(page); return Task.FromResult(page == 1 ? first : second); });
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(pages));
+        Assert.Equal(new[] { 1, 2 }, calls);
+        Assert.Equal("0.3.0", PixShell.Store.ReleaseSelection.Choose(doc.RootElement, "windows")!.Value.Version);
+    }
+
+    [Fact]
+    public void PicksHighestWindowsReleaseAcrossPagesAndIgnoresMacAndDrafts()
+    {
+        using var doc = JsonDocument.Parse("""
+          [
+            {"tag_name":"macos-v9.0.0","assets":[{"name":"PixShell-9.0.0-mac-arm64.dmg"}]},
+            {"tag_name":"windows-v2.0.0","draft":true,"assets":[{"name":"PixShell-2.0.0-win-x64.zip"}]},
+            {"tag_name":"v0.3.0","assets":[{"name":"PixShell-0.3.0-win-x64.zip"}]},
+            {"tag_name":"windows-v0.4.0","assets":[{"name":"PixShell-0.4.0-win-x64-setup.exe"}]},
+            {"tag_name":"windows-v0.9.0","prerelease":true,"assets":[{"name":"PixShell-0.9.0-win-x64.zip"}]}
+          ]
+          """);
+        var result = PixShell.Store.ReleaseSelection.Choose(doc.RootElement, "windows");
+        Assert.NotNull(result);
+        Assert.Equal("0.4.0", result.Value.Version);
+        Assert.Equal("windows-v0.4.0", result.Value.Release.GetProperty("tag_name").GetString());
+    }
+}
+
 public sealed class RemoteFileNameTests
 {
     [Theory]

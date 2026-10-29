@@ -3,10 +3,20 @@ name: build
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
+    tags: [ 'windows-v*', 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: '选择需要构建的平台'
+        type: choice
+        required: true
+        default: both
+        options:
+          - windows
+          - macos
+          - both
 
 permissions:
   contents: read
@@ -15,16 +25,13 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # Release tags must agree with the version checked into the source tree.
-  PRODUCT_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.2.0' }}
-
 jobs:
   # ─────────────────────────────────────────────
   # macOS matrix: arm64 + x64 → dmg + zip
   # ─────────────────────────────────────────────
   macos:
     name: macOS ${{ matrix.arch_label }}
+    if: (github.event_name != 'workflow_dispatch' || inputs.platform == 'macos' || inputs.platform == 'both') && (!startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/tags/v'))
     strategy:
       fail-fast: false
       matrix:
@@ -48,12 +55,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RAW="${{ env.PRODUCT_VERSION }}"
-          RAW="${RAW#v}"
-          if [[ -z "$RAW" || "$RAW" == refs/* ]]; then
-            RAW="0.2.0"
+          RAW=$(sed -n 's/^VERSION="${VERSION:-\([^}]*\)}"$/\1/p' scripts/package-mac.sh)
+          [[ "$RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            [[ "$GITHUB_REF_NAME" == "v$RAW" ]] || { echo 'Tag and macOS source version differ' >&2; exit 1; }
           fi
-          [[ "$RAW" == "0.2.0" ]] || { echo "Tag does not match source version 0.2.0" >&2; exit 1; }
           echo "version=$RAW" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $RAW"
 
@@ -98,6 +104,7 @@ jobs:
   # ─────────────────────────────────────────────
   windows:
     name: Windows win-x64
+    if: (github.event_name != 'workflow_dispatch' || inputs.platform == 'windows' || inputs.platform == 'both') && (!startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/tags/windows-v') || startsWith(github.ref, 'refs/tags/v'))
     runs-on: windows-2025
     defaults:
       run:
@@ -111,12 +118,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RAW="${{ env.PRODUCT_VERSION }}"
-          RAW="${RAW#v}"
-          if [[ -z "$RAW" || "$RAW" == refs/* ]]; then
-            RAW="0.2.0"
+          RAW=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' PixShell.csproj)
+          [[ "$RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            [[ "$GITHUB_REF_NAME" == "windows-v$RAW" || "$GITHUB_REF_NAME" == "v$RAW" ]] || { echo 'Tag and Windows source version differ' >&2; exit 1; }
           fi
-          [[ "$RAW" == "0.2.0" ]] || { echo "Tag does not match source version 0.2.0" >&2; exit 1; }
           echo "version=$RAW" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $RAW"
 
@@ -275,13 +281,25 @@ jobs:
   release:
     name: GitHub Release
     needs: [macos, windows]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: always() && ((startsWith(github.ref, 'refs/tags/windows-v') && needs.windows.result == 'success') || (startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success' && needs.macos.result == 'success'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify release commit belongs to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main || {
+            echo 'Release tag must refer to a commit on main.' >&2
+            exit 1
+          }
 
       - name: Resolve version
         id: ver
@@ -289,8 +307,15 @@ jobs:
         run: |
           set -euo pipefail
           RAW="${GITHUB_REF_NAME}"
-          RAW="${RAW#v}"
+          if [[ "$RAW" == windows-v* ]]; then
+            RAW="${RAW#windows-v}"
+            PLATFORM=windows
+          else
+            RAW="${RAW#v}"
+            PLATFORM=both
+          fi
           echo "version=$RAW" >> "$GITHUB_OUTPUT"
+          echo "platform=$PLATFORM" >> "$GITHUB_OUTPUT"
           echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "Resolved release version: $RAW (tag ${GITHUB_REF_NAME})"
 
@@ -309,11 +334,12 @@ jobs:
           mkdir -p staged
           find release-assets -type f | sort
           # merge-multiple flattens files into release-assets/
-          for f in \
-            "PixShell-${VER}-mac-arm64.dmg" \
-            "PixShell-${VER}-mac-x64.dmg" \
-            "PixShell-${VER}-win-x64.zip" \
-            "PixShell-${VER}-win-x64-setup.exe"
+          if [[ '${{ steps.ver.outputs.platform }}' == windows ]]; then
+            files=("PixShell-${VER}-win-x64.zip" "PixShell-${VER}-win-x64-setup.exe")
+          else
+            files=("PixShell-${VER}-mac-arm64.dmg" "PixShell-${VER}-mac-x64.dmg" "PixShell-${VER}-win-x64.zip" "PixShell-${VER}-win-x64-setup.exe")
+          fi
+          for f in "${files[@]}"
           do
             src=$(find release-assets -type f -name "$f" | head -n1)
             if [[ -z "$src" ]]; then
@@ -338,14 +364,7 @@ jobs:
             echo "No staged release assets" >&2
             exit 1
           fi
-          notes="PixShell ${VERSION}
-
-          - 终端单击移动光标：长命令改中间直接点，不再只能敲方向键
-          - 输出洪水时 UI 不再卡顿：关标签 / 点确定保持流畅
-          - MCP/SSH 多线程复用稳定性：并发 exec 不再丢输出
-
-          - macOS arm64 / x64：.dmg（未签名 CI 构建）
-          - Windows x64：便携 .zip + Inno Setup 安装器"
+          notes="PixShell ${{ steps.ver.outputs.platform }} ${VERSION}"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists — uploading assets"
