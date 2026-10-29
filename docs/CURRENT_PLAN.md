@@ -67,6 +67,7 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 - 备份恢复修复：已新增 `QuickCommandStore.MergeFromBackup` 的持久化回归测试；WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，10/10 通过。Windows WPF 构建及 WebDAV/本地导入手工验证待集中执行；`git diff --check` 已通过。
 - W5 远端新建文件：已新增纯逻辑名称校验测试；WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，20/20 通过，`git diff --check` 通过。`dotnet build win/PixShell.csproj -c Release --no-restore` 未能开始编译，因为当前 Linux SDK 缺少 `Microsoft.NET.Sdk.WindowsDesktop` targets；Windows WPF 编译和三后端手工验收仍待集中执行。
 - D-015 递归删除：WSL 已运行 `dotnet test win/tests/PixShell.Tests.csproj -c Release --no-restore`，20/20 通过，`git diff --check` 通过。该纯逻辑测试项目不覆盖 WPF 对话框、真实 SSH.NET/Proc/SCP 递归删除，三后端的空/非空目录与取消路径待 Windows 手工验证。
+- Windows 0.2.0：GitHub Actions `40878384519`（`dev` 的 `6e14dd9`）Windows job 的测试、self-contained publish、zip、Inno Setup 和 artifact 上传全部通过；macOS 和 Release 任务跳过。产物为 `PixShell-0.2.0-win-x64`；Windows 安装及实机功能验收仍待完成。
 - GitHub Actions run `38904010347`（`dev` 的 `6a8d625`）中 Windows `win-x64` job 已通过 Restore、10 项测试、self-contained publish、资源检查、zip、Inno Setup、artifact 上传；工作流整体失败仅因两个 macOS job 均在既有的 Swift 包解析步骤失败，Windows 交付链本身通过。
 - 编辑器后立即重连补强：已运行 `dotnet vstest win/tests/bin/Release/net9.0/PixShell.Tests.dll --logger:"console;verbosity=normal"`，9/9 通过；`git diff --check` 通过。该程序集不覆盖 WPF UI、SSH.NET 实际 SFTP 下载或真实 Dropbear；本 Linux 环境仍不能编译 WPF。
 
@@ -76,4 +77,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-在 Windows/macOS 构建并核验 `0.2.0` 程序显示、安装器、产物和更新检查；随后执行剩余 Windows 集中验收。尚未发布 `0.2.0`。后续须按 D-016 设计独立版本的 tag、Release、更新检查与按平台拆分构建；现有通用 tag 发布流程仍要求两端同版本，不能用于不同版本的独立发布。
+在 Windows 安装 `40878384519` 的 0.2.0 artifact，核验程序版本、更新检查及既定 Windows 集中验收；尚未发布 `0.2.0`。Windows 专属 tag 发布及 main 自动构建尚未实测，macOS 相关未提交修改不纳入当前 Windows 工作。
