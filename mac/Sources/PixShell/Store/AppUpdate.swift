@@ -1,12 +1,12 @@
 import AppKit
 import Foundation
 
-/// 软件更新：对接 GitHub Releases（`lyu0805/pixshell`）。
+/// 软件更新：对接 GitHub Releases（`miozen/pixshell`）。
 /// - `GET /repos/{owner}/{repo}/releases/latest`
 /// - semver 比较；按本机架构匹配 dmg/zip 资产
 /// - 可下载到「下载」目录并打开；也可只打开该次 release 页
 enum AppUpdate {
-    static let repoSlug = "lyu0805/pixshell"
+    static let repoSlug = "miozen/pixshell"
     static var repoURL: URL? { URL(string: "https://github.com/\(repoSlug)") }
     static var releasesURL: URL? { URL(string: "https://github.com/\(repoSlug)/releases") }
     private static var latestAPI: URL? {

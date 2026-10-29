@@ -37,7 +37,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<HostEntry> _hosts = new();
     private string _htmlPath = "";
     /// <summary>与 csproj / mac CFBundleShortVersionString 对齐的展示与更新比较版本。</summary>
-    public const string AppVersion = "0.1.8";
+    public const string AppVersion = "0.2.0";
 
     private bool _sideCollapsed;
     private double _sidebarWidth = UiStore.Load().SidebarWidth;
@@ -2164,12 +2164,12 @@ public partial class MainWindow : Window
 
         menu.Items.Add(new Separator());
         var help = new MenuItem { Header = "帮助" };
-        help.Items.Add(Item("关于 PixShell", () => MessageBox.Show(this, $"PixShell {AppVersion}\nWindows 原生 SSH / SFTP 客户端\nWPF + WebView2/xterm.js + SSH.NET\nhttps://github.com/lyu0805/pixshell", "关于")));
+        help.Items.Add(Item("关于 PixShell", () => MessageBox.Show(this, $"PixShell {AppVersion}\nWindows 原生 SSH / SFTP 客户端\nWPF + WebView2/xterm.js + SSH.NET\nhttps://github.com/miozen/pixshell", "关于")));
         help.Items.Add(Item("接入 AI 工具…", OpenAIIntegration));
         help.Items.Add(Item("打开桥接镜像页（调试）…", () => _ = OpenWebSshEmbeddedAsync()));
         help.Items.Add(Item("在系统浏览器打开桥接页…", OpenWebSshInSystemBrowser));
         help.Items.Add(new Separator());
-        help.Items.Add(Item("项目仓库", () => { try { Process.Start(new ProcessStartInfo("https://github.com/lyu0805/pixshell") { UseShellExecute = true }); } catch { } }));
+        help.Items.Add(Item("项目仓库", () => { try { Process.Start(new ProcessStartInfo("https://github.com/miozen/pixshell") { UseShellExecute = true }); } catch { } }));
         menu.Items.Add(help);
 
         // 暗色主题：系统 ContextMenu 默认白底，而 Window.Foreground 是浅色字 → 白底看不见字。
@@ -2461,7 +2461,7 @@ public partial class MainWindow : Window
 
     private async Task CheckUpdateAsync()
     {
-        const string repo = "lyu0805/pixshell";
+        const string repo = "miozen/pixshell";
         const string releasesUrl = "https://github.com/" + repo + "/releases";
         const string apiUrl = "https://api.github.com/repos/" + repo + "/releases/latest";
         try
@@ -2617,7 +2617,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            Process.Start(new ProcessStartInfo("https://github.com/lyu0805/pixshell") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("https://github.com/miozen/pixshell") { UseShellExecute = true });
         }
         catch (Exception ex)
         {

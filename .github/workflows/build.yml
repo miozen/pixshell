@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Tag v0.1.1 → 0.1.1; branch/PR/dispatch default 0.1.1
-  PRODUCT_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.1.1' }}
+  # Release tags must agree with the version checked into the source tree.
+  PRODUCT_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.2.0' }}
 
 jobs:
   # ─────────────────────────────────────────────
@@ -51,10 +51,14 @@ jobs:
           RAW="${{ env.PRODUCT_VERSION }}"
           RAW="${RAW#v}"
           if [[ -z "$RAW" || "$RAW" == refs/* ]]; then
-            RAW="0.1.1"
+            RAW="0.2.0"
           fi
+          [[ "$RAW" == "0.2.0" ]] || { echo "Tag does not match source version 0.2.0" >&2; exit 1; }
           echo "version=$RAW" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $RAW"
+
+      - name: Check product version consistency
+        run: bash ../scripts/check-product-version.sh
 
       - name: Show toolchain
         run: |
@@ -110,10 +114,15 @@ jobs:
           RAW="${{ env.PRODUCT_VERSION }}"
           RAW="${RAW#v}"
           if [[ -z "$RAW" || "$RAW" == refs/* ]]; then
-            RAW="0.1.1"
+            RAW="0.2.0"
           fi
+          [[ "$RAW" == "0.2.0" ]] || { echo "Tag does not match source version 0.2.0" >&2; exit 1; }
           echo "version=$RAW" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $RAW"
+
+      - name: Check product version consistency
+        shell: bash
+        run: bash ../scripts/check-product-version.sh
 
       - name: Setup .NET 9 SDK
         uses: actions/setup-dotnet@v4

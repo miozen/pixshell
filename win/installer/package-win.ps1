@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '0.1.8',
+    [string]$Version = '0.2.0',
     [string]$Runtime = 'win-x64',
     [string]$PublishDir = '',
     [string]$OutputDir = '',
@@ -31,6 +31,10 @@ if (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
 $Version = $Version.TrimStart('v', 'V')
 if ([string]::IsNullOrWhiteSpace($Version)) {
     throw 'Version is empty.'
+}
+$sourceVersion = ([xml](Get-Content -Raw (Join-Path $winRoot 'PixShell.csproj'))).Project.PropertyGroup.Version | Select-Object -First 1
+if ($Version -ne $sourceVersion) {
+    throw "Package version $Version does not match project version $sourceVersion."
 }
 
 $archLabel = 'x64'

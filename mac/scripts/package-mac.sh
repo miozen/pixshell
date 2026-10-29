@@ -7,8 +7,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG="${1:-debug}"
 APP="$ROOT/dist/PixShell.app"
 # Optional override for CFBundleShortVersionString (CI tag strip / local release).
-VERSION="${VERSION:-0.1.8}"
+VERSION="${VERSION:-0.2.0}"
 VERSION="${VERSION#v}"
+if [ "$VERSION" != "0.2.0" ]; then
+  echo "版本 $VERSION 与源码版本 0.2.0 不一致" >&2
+  exit 1
+fi
 
 # set -u 下空数组 "${BUILD_ARGS[@]}" 会炸；用显式参数列表。
 BUILD_CMD=(swift build)

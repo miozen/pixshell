@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g. 0.1.3)'
+        description: 'Version (e.g. 0.2.0)'
         required: true
-        default: '0.1.3'
+        default: '0.2.0'
 
 permissions:
   contents: write
@@ -27,6 +27,7 @@ jobs:
         run: |
           RAW="${{ github.event.inputs.version }}"
           RAW="${RAW#v}"
+          [[ "$GITHUB_REF" == refs/heads/main && "$RAW" == 0.2.0 ]] || { echo 'Release requires main and source version 0.2.0' >&2; exit 1; }
           echo "version=$RAW" >> "$GITHUB_OUTPUT"
 
       - name: Build
