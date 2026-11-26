@@ -11,7 +11,7 @@ PixShell 是单仓库维护的 macOS / Windows 原生 SSH、SFTP 与本机自动
 | 平台 | 应用与终端 | SSH / SFTP | 构建 |
 | --- | --- | --- | --- |
 | macOS 13+ | Swift、AppKit、SwiftTerm | SwiftNIO SSH、自研 SFTP v3；系统 OpenSSH 回退 | SwiftPM / Xcode |
-| Windows | C#、.NET 9 WPF、WebView2、xterm.js | SSH.NET；FIDO2/兼容路径使用系统 OpenSSH | `dotnet` / Inno Setup |
+| Windows | C#、.NET 10 WPF、WebView2、xterm.js | SSH.NET；FIDO2/兼容路径使用系统 OpenSSH | `dotnet` / Inno Setup |
 
 版本和依赖以 [mac/Package.swift](../mac/Package.swift)、[mac/Package.resolved](../mac/Package.resolved) 与 [win/PixShell.csproj](../win/PixShell.csproj) 为准。
 

@@ -116,3 +116,10 @@
 - 理由：用户明确指定发布归属和版本基准，避免继续混用原仓库和过时版本号。
 - 约束：此决策本身不代表 `0.2.0` 已发布；统一源码、构建、安装器和更新检查并完成验证后才可发布。
 - 依据：用户于 2026-10-29 确认；[.github/workflows/build.yml](../.github/workflows/build.yml)。
+
+## D-017：Windows 采用 .NET 10 LTS 作为长期开发基线
+
+- 状态：**Accepted**（2026-11-26）
+- 决策：Windows 端（主程序 `net10.0-windows`、测试工程及辅助 `lsptest` 迁移至 `net10.0`、构建脚本与 Windows CI 切换为 `.NET 10 SDK`）以 `.NET 10 LTS` 作为长期开发基线；由于 `net10.0-windows` Desktop 包已内置 `System.Security.Cryptography.ProtectedData` 与 `System.Drawing.Common`，移除 `PixShell.csproj` 中触发 `NU1510` 的冗余显式包引用；`SSH.NET 2025.1.0` 安全升级保留在后续独立安全切片处理。
+- 理由：在开展系统性缺陷修复（R1–R5）前先将平台锁定在 LTS 版本，且将框架迁移与安全依赖升级/业务修复严格解耦，确保每步可独立验证和回滚。
+- 依据：[win/PixShell.csproj](../win/PixShell.csproj)、[win/tests/PixShell.Tests.csproj](../win/tests/PixShell.Tests.csproj)、[win/build.ps1](../win/build.ps1)、[.github/workflows/build.yml](../.github/workflows/build.yml)。

@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows FinalShell 工作流对齐：F0 已完成；W0 主路径验收通过且失败路径暂缓；W1、W2a–W2c、W4a–W4c 与 W5 已完成实现；OpenWrt/Dropbear 立即重连的客户端补强已完成，本轮不再作为 PixShell 独有故障继续修复；Windows 备份完整恢复修复已实现并待集中验证；W3 已排除。**
+**Windows 专项缺陷整治与 .NET 10 LTS 迁移：已完成 R0（R0.1–R0.4 全部通过：`.NET 10 LTS` 迁移独立提交 `bbee132` 已合入 `dev` 并通过本地与 Windows CI 验收，`.NET 10` 正式成为 Windows 开发基线；`AGENTS.md` 已纳入分层构建与测试策略）；待用户确认后启动 R1（数据防损、误删误覆与防错发）。macOS 保持不动。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -17,7 +17,8 @@
 - 本轮已建立五份核心协作文档及 Session Start/Handoff 协议。
 - 已完成 Windows 与 FinalShell 工作流差异审查，并固化 Windows 对齐改造契约。
 - F0（Windows）：已建立 `origin/dev`、最小快捷命令测试、`main` 自动 CI / `dev` 手动 CI 策略与 Windows artifact 交付链。手动 `dev` run `38252736394` 和自动 `main` run `38253363885` 的 Windows job 均通过 Test、Publish、zip、Inno Setup 与 artifact 上传。
-- W0：Windows 实机已通过目录双击、文本文件双击打开编辑窗口、编辑保存回传与超 4 MiB 文件明确提示。上传失败时保留脏内容因未构造安全失败条件，按用户指示暂不测试；不得记录为通过。
+- R0（.NET 10 LTS 基线与工具链验证，含 R0.1–R0.4）：已完成基线构建测试、`.NET 10` 迁移与 `win/build.ps1` 修复（独立提交 `bbee132`）、本地发布与人工实机冒烟（主窗/WebView2/DPAPI/SSH 重连/SFTP），以及 `dev` 分支手动 Windows GitHub Actions 构建及安装包产物验收（`build #11` / run `45734819385`），`.NET 10 LTS` 正式成为 Windows 开发基线。
+- [AGENTS.md](../AGENTS.md)：已确立 Windows 分层构建与测试策略（Bug 修复增量与定向测试、切片全量回归、阶段全量 Release + 实机验收、工具链变更全流程 + 必要 CI 验证）。
 
 ## In Progress
 
@@ -36,7 +37,9 @@
 
 ## Remaining
 
+- W0：Windows 实机已通过目录双击、文本文件双击打开编辑窗口、编辑保存回传与超 4 MiB 文件明确提示。上传失败时保留脏内容因未构造安全失败条件，按用户指示暂不测试；不得记录为通过。
 - 在适当的可控环境补测 W0 的“上传失败保留编辑内容”路径；该项暂缓不等于验收通过。
+- R1–R5：按独立切片推进 Windows 缺陷整治（下一切片为 **R1：数据防损、误删误覆与防错发**，含 `WIN-BUG-001A/B/C`、`003A/B`、`004A/B`、`009A`、`011A/B`、`014A`、`015A/B`、`019A` 与升格为 P1 的 `WIN-BUG-029`；`SSH.NET` 升级留作 R2 优先独立安全切片；`WIN-BUG-025/026/027` 终端无响应为 R3 核心稳定性重点）。
 - OpenWrt/Dropbear 重连问题本轮按外部/服务端或链路共享状态处理并结束客户端修复；未来仅在存在可重复的 PixShell/FinalShell 对照差异时，补齐 Dropbear、conntrack/防火墙和代理路径证据后再重开。
 - W3 已由 D-012 排除；W1、W2、W4 与 W5 的全部已确认实现事项已完成，待按用户约定统一验证。
 - 集中验证时覆盖 W5：`.env`、`config.json`、无扩展名和 Unicode 文件名；同名文件/目录不覆盖；权限失败反馈；三种远端后端不静默成功；创建后能打开、保存并在刷新后可见。
@@ -70,11 +73,19 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 - Windows 0.2.0：GitHub Actions `40878384519`（`dev` 的 `6e14dd9`）Windows job 的测试、self-contained publish、zip、Inno Setup 和 artifact 上传全部通过；macOS 和 Release 任务跳过。产物为 `PixShell-0.2.0-win-x64`；Windows 安装及实机功能验收仍待完成。
 - GitHub Actions run `38904010347`（`dev` 的 `6a8d625`）中 Windows `win-x64` job 已通过 Restore、10 项测试、self-contained publish、资源检查、zip、Inno Setup、artifact 上传；工作流整体失败仅因两个 macOS job 均在既有的 Swift 包解析步骤失败，Windows 交付链本身通过。
 - 编辑器后立即重连补强：已运行 `dotnet vstest win/tests/bin/Release/net9.0/PixShell.Tests.dll --logger:"console;verbosity=normal"`，9/9 通过；`git diff --check` 通过。该程序集不覆盖 WPF UI、SSH.NET 实际 SFTP 下载或真实 Dropbear；本 Linux 环境仍不能编译 WPF。
+- R0.2（`dev` @ `261a9ca`，.NET 9.0）：本机 PowerShell 完成 NuGet restore、Release 构建 0 错误（68 警告 / 34 去重项：2 `NU1903`、29 `CS4014`、2 `CS8602`、1 `CS0414`）及 xUnit 测试 22/22 通过；AI 沙箱内通过离线 `--no-restore` 复现相同 Release 0 错误 / 68 警告编译日志。
+- R0.3 / R0.4（`.NET 10 LTS` 迁移与 `win/build.ps1` 修复，独立提交 `bbee132` 已推送 `origin/dev`）：
+  - `win/build.ps1` 全部 Action（`clean`、`test`、`build`、`publish`）执行通过，并在跨目录调用（成功与失败路径）验证调用者当前工作目录可正确恢复、`Invoke-Dotnet` `-o` 参数绑定无歧义、原生退出码正常传递；
+  - `PixShell.Tests.csproj`（`net10.0`，Release）：xUnit 22/22 通过（0 失败、0 跳过）；
+  - `PixShell.csproj`（`net10.0-windows`，Release，`win-x64` self-contained）：构建与发布均 0 错误、68 条编译警告（与 R0.2 基线完全一致，0 新增警告），生成 `PixShell.exe`、`web\*` 与 `WebView2Loader.dll`；
+  - `win/installer/package-win.ps1 -SkipInstaller`：生成 `PixShell-0.2.0-win-x64.zip`；
+  - 发布版实机启动与人工冒烟：`PixShell.exe --headless` 监听 `127.0.0.1:47866`（无 token `/v1/health` 返回 `401`，带 token `/v1/health` 返回 `200`、`/v1/app/hosts` 返回 11 条主机、`/v1/app/shutdown` 正常退出）；GUI 版启动存活并完成人工实机冒烟（主窗口、WebView2 终端交互、已有 DPAPI 凭据读取、SSH 连接及重连、SFTP 基础文件操作均无迁移回归）；
+  - GitHub Actions `build.yml`（`workflow_dispatch` on `dev`、`bbee132`、`platform: windows`，`build #11` / run `45734819385`）：`Windows win-x64` 全部步骤通过（`Setup .NET 10 SDK`、`Restore`、`Test`、`Publish self-contained win-x64`、`Check packaged web assets`、`Zip publish output`、`Install Inno Setup 6`、`Compile Inno Setup installer`、`Upload Windows artifacts`），上传产物 `PixShell-0.2.0-win-x64`。
 
 ## Blockers
 
-- Linux 环境缺少 WPF `Microsoft.NET.Sdk.WindowsDesktop` targets，且本机 WSL 的 Windows 互操作不可执行 `powershell.exe`，不能执行完整 Windows 应用构建。Windows F0 已由 GitHub Windows runner 验证；macOS 两个 job 在 Swift 包解析阶段失败，须作为独立跨平台 CI 问题处理。
+- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；本次 `.exe` 安装包已在 GitHub Actions `build #11` 完成云端验证。
 
 ## Next Action
 
-在 Windows 安装 `40878384519` 的 0.2.0 artifact，核验程序版本、更新检查及既定 Windows 集中验收；尚未发布 `0.2.0`。Windows 专属 tag 发布及 main 自动构建尚未实测，macOS 相关未提交修改不纳入当前 Windows 工作。
+向用户汇报 R0.4 验收收尾结论与 R1 切片范围及验收要求；待用户确认后启动 R1（建议先实施 `WIN-BUG-029` / `WIN-BUG-001A/B/C` 等 SFTP 写回与目录竞态防误删防损子切片，并遵循 `AGENTS.md` 分层构建与测试策略）。
