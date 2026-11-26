@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）、R1、R2、R3 与 R4（UI/编辑器/SFTP 异步可靠性全部代码、`72/72` xUnit 自动化回归、完整 `Release` 发布及 3 项精简 GUI 冒烟确认通过，并已拆分提交推送 `origin/dev`）。现启动 R5（最终发布就绪检查：打包/ZIP/版本一致性校验、空引用尾项检查与全局收尾验收）。macOS 保持不动。**
+**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）、R1、R2、R3、R4 与 R5（空引用尾项清零、`0` 编译错误/`0` 编译警告、`72/72` xUnit 全量回归、WSL 隔离校验、`clean → Release publish` 自包含构建、ZIP 打包与 `0.2.0` 版本一致性检查全通过，并已提交推送 `origin/dev`）；后续可按发布门禁手动触发 `dev` Windows GitHub Actions 验收 `.exe` 安装包及批准 `dev → main` 发布合入。macOS 保持不动。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -55,7 +55,9 @@
   - **R4（全阶段编码与自动化验收完成：UI/编辑器 LSP 线程安全、SFTP 异步异常观测与路径校验）**：
     - [AsyncTaskObserver.cs](../win/Store/AsyncTaskObserver.cs)、[SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs) 与 [MainWindow.xaml.cs](../win/MainWindow.xaml.cs)：统一观测所有 UI 触发的无 `await` SFTP/本地加载/直传/新建/删除/保存异步任务，异常记录日志并即时更新状态栏（彻底消除 19 处 `CS4014` 静默异常风险）；为 `UploadDirect`/`DownloadDirect` 补充外层 `try/catch/finally` 保护；`Rename` 与 `Mkdir` 接入 `RemoteFileName.TryNormalize` 拦截 `..` 与分隔符；
     - [EditorWindow.xaml.cs](../win/UI/EditorWindow.xaml.cs)：`ReadyChanged`/`Diagnostics`/`Hover`/`Definition`/`Completion`/`OnSave` 全部安全封送至 UI `Dispatcher` 并检查 `_isClosed`；修复 `ApplyDiagnostics` 与 `LspGoToDefinition` 使用 `FindPointerAtOffset` 精准定位；关窗清理定时器和补全弹窗并消除 `CS0414`。
-  - 后续按计划推进 **R5（工具链收尾、发布前版本/安装器/CI 验收准备与全局收官）**。
+  - **R5（全局发布就绪检查与零警告收官）**：
+    - 消除最后两处 `CS8602` 空引用路径（`TerminalSession.Dispose` 中未初始化 `CoreWebView2` 事件解绑与 `HeadlessBridgeHost.BridgeWrite` 的 `s.Shell == null` 判空），实现整仓 Windows 构建 **`0` 错误、`0` 编译警告**；
+    - 完成 `0.2.0` 双端版本一致性校验、漏洞扫描（`0` 漏洞）、`72/72` xUnit + WSL 隔离脚本、`clean → Release publish` 与 `package-win.ps1 -SkipInstaller` ZIP 打包验证。
 - OpenWrt/Dropbear 重连问题本轮按外部/服务端或链路共享状态处理并结束客户端修复；未来仅在存在可重复的 PixShell/FinalShell 对照差异时，补齐 Dropbear、conntrack/防火墙和代理路径证据后再重开。
 - W3 已由 D-012 排除；W1、W2、W4 与 W5 的全部已确认实现事项已完成，待按用户约定统一验证。
 - 集中验证时覆盖 W5：`.env`、`config.json`、无扩展名和 Unicode 文件名；同名文件/目录不覆盖；权限失败反馈；三种远端后端不静默成功；创建后能打开、保存并在刷新后可见。
@@ -115,15 +117,16 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
   - 完整发布：`win/build.ps1 -Action publish -Configuration Release -Runtime win-x64`（`Release / net10.0-windows / win-x64` self-contained）成功，`0` 错误，最新可执行文件 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 16:06:26`，`198144` 字节）；
   - 集中冒烟验收：R3 精简人工 GUI 冒烟清单（`R3-S1`～`R3-S3`）已由用户确认通过，记为 `Passed`。
 
-- R4 阶段收尾验收（已拆分提交并推送 `origin/dev`）：
-  - 全量测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）xUnit **`72/72` 通过**（`0` 失败、`0` 跳过、`622 ms`，`0` 警告；含新增 10 项 `R4ReliabilityTests`）；
-  - 完整发布：`win/build.ps1 -Action publish -Configuration Release -Runtime win-x64`（`Release / net10.0-windows / win-x64` self-contained）成功，`0` 错误、`2` 条唯一既有 `CS8602` 警告（`0` `CS4014`、`0` `CS0414`），最新可执行文件 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 16:16:11`，`198144` 字节）；
-  - 集中冒烟验收：R4 精简人工 GUI 冒烟清单（`R4-S1`～`R4-S3`）已由用户确认通过，记为 `Passed`。
+- R5 最终收尾与发布前全链路验证（已拆分提交并推送 `origin/dev`）：
+  - 空引用尾项修复：`TerminalSession.Dispose` 与 `HeadlessBridgeHost.BridgeWrite` 修复后，`Release / net10.0-windows / win-x64` 构建 **`0` 错误、`0` 警告**；
+  - 版本与漏洞检查：Windows 与 macOS `0.2.0` 版本元数据对齐通过；`dotnet list` 漏洞扫描报告 `0` 易受攻击包；
+  - 全量测试与隔离集成：`win/tests/Invoke-IsolatedIntegrationTests.ps1` 通过，xUnit **`72/72` 通过**（`0` 失败、`0` 跳过、`5.11s`、`0` 警告），WSL2 `Ubuntu` GNU `tar` 分阶段提取与只读失败验证通过；
+  - 完整发布与打包：`win/build.ps1 -Action clean` → `win/build.ps1 -Action publish` 生成 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 16:34:41`，`198144` 字节）；`win/installer/package-win.ps1 -SkipInstaller` 生成 `D:\20_Projects\pixshell\win\dist\artifacts\PixShell-0.2.0-win-x64.zip`（`67310001` 字节）。
 
 ## Blockers
 
-- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；此外本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`（`/usr/sbin/sshd`、`sftp-server`），实时 SSH/SFTP/SCP 守护进程自动化集成测试处于 `Environment-Limited` 状态（不阻断 R5 开发与打包验收）。
+- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`），因此 `.exe` 安装包生成需经 `dev` 手动触发 GitHub Actions CI 完成；此外本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`（`/usr/sbin/sshd`、`sftp-server`），实时 SSH/SFTP/SCP 守护进程自动化集成测试保持 `Environment-Limited` 状态（均已明确标出）。
 
 ## Next Action
 
-开展 **R5（Windows 发布前综合收尾验收）**：核查最后两处 `CS8602` 空引用路径、执行版本一致性校验、`package-win.ps1` ZIP 打包及隔离 `--headless`/WSL 全量回归，整理全阶段最终交付清单与发布候选状态。
+按发布门禁在 `dev` 分支手动触发一次 Windows GitHub Actions 工作流验证 `PixShell-0.2.0-win-x64-setup.exe` 安装包产物，通过后由用户批准 `dev → main` 正式发布。

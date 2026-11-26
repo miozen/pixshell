@@ -139,3 +139,17 @@
 | **R4-S1** | 编辑器保存与关闭生命周期 | 已连接测试主机，打开任意远端小文本文件编辑。 | 1. 编辑保存一次后直接关闭窗口；<br>2. 若本机装有 `rust-analyzer` 且测试目录有 `.rs` 文件，可选打开 `.rs` 验证诊断/补全无崩溃。 | 1. 保存状态正常显示时间并清脏标记，关闭不再残留定时器或卡顿；<br>2. `.rs` LSP 诊断/悬停不崩溃（无 `rust-analyzer` 可忽略此小步）。 | `Passed`（用户确认通过） |
 | **R4-S2** | SFTP 命名边界与状态栏反馈 | 已连接测试主机上的临时目录。 | 1. 尝试重命名或新建目录输入 `../bad`；<br>2. 改为合法名完成新建与删除清理。 | 1. 非法路径名在界面状态栏被明确拦截，不发往服务端；<br>2. 合法目录/文件操作及本地栏切换刷新正常。 | `Passed`（用户确认通过） |
 | **R4-S3** | 打包关闭态单文件直传响应 | 已连接测试主机，关闭“打包传输”开关。 | 1. 直传上传及下载一个普通小文件。 | 1. 直传过程界面与状态栏反馈清晰，无静默失败或异常弹窗。 | `Passed`（用户确认通过） |
+
+---
+
+## 七、R5 阶段总收尾与发布门禁状态
+
+- **最终构建产物**：`Release / net10.0-windows / win-x64`（self-contained），`0` 错误、**`0` 编译警告**，完整路径 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 16:34:41`，`198144` 字节）。
+- **分发 ZIP 产物**：`D:\20_Projects\pixshell\win\dist\artifacts\PixShell-0.2.0-win-x64.zip`（`67,310,001` 字节）。
+
+| 检查项 | 类别 | 验证内容 | 状态 |
+| :--- | :--- | :--- | :--- |
+| **R5-1** | 自动化静态与漏洞检查 | `clean → Release publish` `0` 错误/`0` 警告；NuGet 漏洞扫描 `0` 漏洞；`0.2.0` 双端版本一致性对齐 | `Passed` |
+| **R5-2** | 自动化单元与 WSL 隔离集成 | `Invoke-IsolatedIntegrationTests.ps1`：`72/72` xUnit 全量通过 + WSL2 `Ubuntu` GNU `tar` / 只读失败 / `ls -la` 检查通过 | `Passed` |
+| **R5-3** | 发布包构建与归档校验 | `package-win.ps1 -SkipInstaller` 生成含 `PixShell.exe`、`web\*`、`WebView2Loader.dll` 与 `Renci.SshNet.dll` 的自包含分发 ZIP | `Passed` |
+| **R5-4** | 云端 Inno Setup 与集成环境项 | GitHub Actions `dev` 手动触发 Windows 安装包 `.exe`（本机无 `ISCC.exe`）与实时 `sshd`/代理协议回环集成（无 Docker/`sshd`） | `Pending`（云端 CI）/ `Environment-Limited`（本地 `sshd` 回环） |
