@@ -1,24 +1,22 @@
 # 开发接力状态
 
-- **Last Updated**: 2026-11-26（完成 R0.4 实机与 Windows CI 验收收尾，正式确立 `.NET 10 LTS` 为 Windows 开发基线，并纳入分层构建与测试策略）
-- **Current Branch**: `dev`（跟踪 `origin/dev`）
-- **HEAD / Last Code Commit**: `bbee132` — `chore(win): migrate to .NET 10 LTS and fix build.ps1`（已推送至 `origin/dev`，后接 R0.4 文档与规范收尾提交）
-- **Working Tree**: **CLEAN**（本轮核心文档与 `AGENTS.md` 更新随收尾提交推送至 `origin/dev`；本地构建与打包产物位于未跟踪目录 `win/publish/win-x64`、`win/dist`）
-- **Current Phase**: R0 已全部完成（R0.1–R0.4）；准备进入 **R1（数据防损、误删误覆与防错发）**，待用户确认切片后实施。
-- **Current Task**: 等待用户确认后启动 R1 首个修复切片（优先处理 SFTP 目录竞态与写回防损：`WIN-BUG-029`、`WIN-BUG-001A/B/C` 等），不触碰 macOS，不提前修改业务源码。
+- **Last Updated**: 2026-11-26（按切片验收标准完成 `R1-1` 并并入阶段人工清单，确立切片/阶段分级验收与构建交付规范，准备提交推送后启动 `R1-2`）
+- **Current Branch**: `dev`（跟踪 `origin/dev`，`HEAD` 为 `852fddf`）
+- **HEAD / Last Code Commit**: `852fddf` — `docs: record R0.4 verification, .NET 10 baseline, and layered test policy`（已推送至 `origin/dev`；代码基线 `bbee132`）。
+- **Working Tree**: **待提交（R1-1 + 验收交付规范更新）** — 即将按授权提交推送至 `origin/dev`，随后进入 `R1-2`。
+- **Current Phase**: R1 实施中（`R1-1` 自动化与局部安全复核已完成；待人工项已登记至 `docs/MANUAL_TEST_CHECKLIST.md` 待 R1 阶段收尾集中验证；即将推进 `R1-2`：`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`）。
+- **Current Task**: 提交并推送 `R1-1` 与 `AGENTS.md`/`MANUAL_TEST_CHECKLIST.md`，紧接着实施 `R1-2`。
 - **Last Completed**:
-  - R0.3：Windows 目标框架与构建/CI 切换为 `.NET 10 LTS`，清理 `NU1510` 冗余包引用，修复 `win/build.ps1` 目录恢复与 `-o` 参数绑定，并作为独立提交 `bbee132` 推送至 `origin/dev`。
-  - R0.4：完成 `win/build.ps1` 全动作（`clean` / `test` 22/22 / `build` 68 既有警告 0 新增 / `publish`）、ZIP 打包、`--headless` 健康检查、GUI 人工实机冒烟（主窗口、WebView2 终端交互、DPAPI 凭据读取、SSH 连接/重连、SFTP 基础文件操作）及 GitHub Actions `build #11`（run `45734819385`，`Windows win-x64` 成功并产出 `PixShell-0.2.0-win-x64`）。
-  - 规范更新：`AGENTS.md` 已纳入 Windows 十项分层构建与测试策略（按单个 Bug / 切片 / 阶段 / 工具链变更 / 正式发布门禁分级执行验证）。
-- **Uncommitted Work**: 无。
+  - `WIN-BUG-029`、`WIN-BUG-001A/B/C` 与 `WIN-BUG-014A`：`R1-1` 编码、安全复核与全量 xUnit `35/35` 回归通过，待人工项汇总至 `docs/MANUAL_TEST_CHECKLIST.md`（不阻断进入 `R1-2`）。
+  - 规范升级：`AGENTS.md` 纳入切片级验收、阶段级集中验收、最新构建主动启动及五项构建交付报告要求。
+- **Uncommitted Work**: 当前准备提交的 `R1-1` 切片代码、测试与协作文档更新。
 - **Validation Performed**:
-  - `win/build.ps1` 全流程及跨目录恢复验证：`clean`、`test`（22/22 通过）、`build`（0 错误、68 警告）、`publish`（self-contained `win-x64`）与退出码/工作目录恢复均通过。
-  - `win/installer/package-win.ps1 -SkipInstaller`：生成 `win/dist/artifacts/PixShell-0.2.0-win-x64.zip`。
-  - 发布版实机验证：`--headless`（`/v1/health` 401/200、`/v1/app/hosts` 11 条主机、`/v1/app/shutdown` 退出）及用户 GUI 人工实机冒烟（主窗、WebView2、DPAPI、SSH 连接/重连、SFTP 基础操作）均通过。
-  - GitHub Actions `build.yml`（`dev` @ `bbee132`，`platform: windows`，`build #11` / run `45734819385`）：`Windows win-x64` 通过（含 `.NET 10` 测试、发布、ZIP、Inno Setup 6 安装包编译与 `PixShell-0.2.0-win-x64` artifact 上传）。
+  - 构建：`Release / net10.0-windows / win-x64`（`win/bin/Release/net10.0-windows/win-x64/PixShell.exe`，`--no-restore`）`0` 错误 / `48` 警告（0 新增）。
+  - 测试：`PixShell.Tests.csproj`（`net10.0`）`35/35` 通过（0 失败 / 0 跳过 / `109 ms`）。
 - **Validation Pending**:
-  - R1–R5 业务缺陷修复及各切片对应回归测试与受影响实机验证（按 `AGENTS.md` 分层策略执行）。
+  - R1 阶段集中实机验收项（统一见 `docs/MANUAL_TEST_CHECKLIST.md`，待 R1 全切片完成后基于最新构建程序一次性集中验收）；
+  - R1 后续切片（`R1-2`、`R1-3`）与 R2–R5。
 - **Known Issues / Blockers**:
-  - 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；当前无阻断 R1 本地开发与验证的环境阻塞。
-- **Exact Next Action**: 待用户确认 R1 修复切片方案与优先级后，从最新 `origin/dev` 启动 R1 实施（建议从 `WIN-BUG-029` 目录异步刷新竞态及 `WIN-BUG-001A/B/C` SFTP 写回防损切入），并同步补充配套自动化回归测试。
-- **Cross-machine Ready**: **YES** — R0.3/R0.4 代码、CI 验证及文档均已提交并推送至 `origin/dev`；新环境先执行 `git fetch && git pull` 核对 `origin/dev` 后即可继续。
+  - 当前无阻塞。
+- **Exact Next Action**: 提交并推送 `R1-1` 至 `origin/dev`，然后立即开始 `R1-2`（`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`）。
+- **Cross-machine Ready**: **YES**（`R1-1` 提交推送至 `origin/dev` 后即可跨机接力）。
