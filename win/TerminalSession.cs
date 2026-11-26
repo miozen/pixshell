@@ -1192,7 +1192,7 @@ public sealed class TerminalSession : IDisposable
                 "文件传输请改用密码或普通密钥登录，或直接使用 scp/sftp 命令。");
         var info = BuildConnectionInfo(_host, _port, _user, _pass, _keyPath, _proxy);
         info.Timeout = TimeSpan.FromSeconds(30);
-        return new ScpClient(info);
+        return new ScpClient(info, RemotePathTransformation.ShellQuote);
     }
 
     /// <summary>展开 ~ 与环境变量，供私钥路径存在性检查与加载共用。</summary>

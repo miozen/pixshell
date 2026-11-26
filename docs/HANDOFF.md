@@ -1,23 +1,22 @@
 # 开发接力状态
 
-- **Last Updated**: 2026-11-26（R1 阶段收尾拆分提交并推送 `origin/dev`，完成 `SSH.NET` 2025.1.0 安全公告初审并启动 R2）
-- **Current Branch**: `dev`（跟踪 `origin/dev`，含 `R1-3` 业务修复、隔离测试补强及规范/文档提交）
-- **Working Tree**: **CLEAN**（R1 业务修复、测试基础设施与规范文档已分别独立提交并推送 `origin/dev`；未改 `mac/`，未改动用户配置）
-- **Current Phase**: **R1 已完成收尾**，正式进入 **R2（`WIN-BUG-002`、`012A`、`013A`、`018A`、`024`）**。
-- **Current Task**: 评估并启动 R2 首个修复切片（先独立审查 `SSH.NET` 2025.1.0 安全公告及 `2026.0.1` 升级兼容性，再按切片依次补齐主机指纹验证、凭据保护、代理及连接生命周期安全）。
-- **Last Completed（R1 收尾）**:
-  - `R1-3` 业务修复（`WIN-BUG-011A/B`、`015B`、`019A`）：`LocalFileTransaction` 跨进程文件锁/原子替换/损坏备份与阻断、跨卷目录移动回退、命令板稳定 `SessionId` 锁定；
-  - 测试与隔离集成基础设施：新增 `LocalTransactionAndTargetTests`（5 项）、`LocalArchiveIntegrationTests`（2 项真实 OS `tar` 归档集成）与 [Invoke-IsolatedIntegrationTests.ps1](file:///d:/20_Projects/pixshell/win/tests/Invoke-IsolatedIntegrationTests.ps1)；
-  - 规范与清单：更新 [AGENTS.md](file:///d:/20_Projects/pixshell/AGENTS.md)、[CURRENT_PLAN.md](file:///d:/20_Projects/pixshell/docs/CURRENT_PLAN.md)、[MANUAL_TEST_CHECKLIST.md](file:///d:/20_Projects/pixshell/docs/MANUAL_TEST_CHECKLIST.md)（R1 6 项精简 GUI 冒烟保持 `Preliminary Pass`）。
-- **Validation Performed（R1 最终状态）**:
-  - 构建：`Release / net10.0-windows / win-x64`（self-contained），`win\publish\win-x64\PixShell.exe`（`2026/11/26 09:58:17`，`0` 错误）；
-  - 自动化单元测试与本地归档集成：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）`46/46` 通过（`0` 失败 / `0` 跳过 / `466 ms` / `0` 警告）；
-  - 隔离 WSL2 `Ubuntu` 集成检查：`Invoke-IsolatedIntegrationTests.ps1` 通过；
-  - R1 六项精简 GUI 冒烟（`R1-S1`～`R1-S6`）：保留 `Preliminary Pass` 状态。
+- **Last Updated**: 2026-11-26（完成 `R2-1`：`SSH.NET 2025.1.0 → 2026.0.1` 独立安全升级、`ScpClient` `ShellQuote` 适配与全量工具链验证）
+- **Current Branch**: `dev`（跟踪 `origin/dev`，`HEAD` 为 `6411115`）
+- **HEAD / Last Code Commit**: `6411115` — `docs: update test responsibility policy, R1 checklist, plan, and handoff`（已推送 `origin/dev`）。
+- **Working Tree**: **DIRTY（R2-1 独立依赖升级切片）** — 包含 `win/PixShell.csproj`、`win/TerminalSession.cs`、`win/tests/PixShell.Tests.csproj`、`win/tests/SshNetUpgradeTests.cs` 及 `docs/` 进度记录；未混入 `R2-2` 业务逻辑，未改 `mac/`。
+- **Current Phase**: **R2 进行中**（`R2-1` 编码、漏洞扫描、`49/49` 测试与完整 Release 发布已完成，待独立提交推送 `origin/dev` 后推进 `R2-2`）。
+- **Current Task**: 提交推送独立的 `R2-1` 依赖升级切片（及可选 `dev` Windows CI 核验）后，启动 **R2-2（`WIN-BUG-012A` + `024` 主机指纹验证基线）**。
+- **Last Completed**:
+  - `R2-1`（`WIN-BUG-002`）：将 `SSH.NET` 由 `2025.1.0` 独立升级至 `2026.0.1`，消除 `GHSA-mggc-4xg6-vcxf` 与 `GHSA-q939-rpr3-3284`（`NU1903` 清零）；将 `TerminalSession.CreateScpClient()` 显式迁移为 `new ScpClient(info, RemotePathTransformation.ShellQuote)`（消除 `CS0618`）；在 `PixShell.Tests` 接入 `SSH.NET 2026.0.1` 并新增 3 项 `SshNetUpgradeTests`。
+- **Uncommitted Work**: `win/PixShell.csproj`、`win/TerminalSession.cs`、`win/tests/PixShell.Tests.csproj`、`win/tests/SshNetUpgradeTests.cs`、`docs/CURRENT_PLAN.md`、`docs/HANDOFF.md`、`docs/MANUAL_TEST_CHECKLIST.md`。
+- **Validation Performed**:
+  - 漏洞扫描：`dotnet list win/PixShell.csproj package --vulnerable --include-transitive` 与 `PixShell.Tests.csproj` 均报告无易受攻击包；
+  - 构建与发布：`Release / net10.0-windows / win-x64` 增量编译 `0` 错误、`22` 条既有非阻断警告（无新增警告、`0` `CS0618`）；self-contained 发布成功，产物 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 15:40:59`，`198144` 字节）与 `Renci.SshNet.dll`（`535040` 字节）；
+  - 自动化测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）xUnit **`49/49` 通过**（`0` 失败、`0` 跳过、`489 ms`）。
 - **Validation Pending / Environment-Limited**:
-  - `Environment-Limited`：实时 SSH/SFTP/SCP 守护进程回环集成测试（本机及 WSL `Ubuntu` 未安装 Docker / Windows `sshd` / WSL `openssh-server`）；
-  - `Pending`：R2–R5。
+  - `Environment-Limited`：实时 SSH/SFTP/SCP 守护进程回环集成测试（本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`）；
+  - `Pending`：`R2-1` 可选 `dev` 手动 CI 工具链验证、R2 阶段收尾集中冒烟，以及 `R2-2`、`R2-3`、`R3–R5`。
 - **Known Issues / Blockers**:
-  - `PixShell.csproj` 当前使用 `SSH.NET 2025.1.0`，NuGet 报 2 条 High 级安全公告 `NU1903`（`GHSA-mggc-4xg6-vcxf` 与 `GHSA-q939-rpr3-3284`），待 R2 首切片评估升级至 `2026.0.1`。
-- **Exact Next Action**: 按 R2 实施顺序先独立开展 `SSH.NET 2025.1.0 → 2026.0.1` 依赖升级兼容审查与回归测试基线搭建，再依次推进 `WIN-BUG-002`、`012A`、`013A`、`018A`、`024`。
-- **Cross-machine Ready**: **YES** — R1 全部修复、测试与文档已完成拆分提交并推送 `origin/dev`。
+  - 本机未安装 `docker`、Windows/WSL `sshd`、`gh` CLI 与 `ISCC.exe`；当前无阻断 `R2-1` 提交或 `R2-2` 开发的问题。
+- **Exact Next Action**: 获确认后将当前 `R2-1`（`SSH.NET 2026.0.1` 升级及测试/文档）独立提交并推送 `origin/dev`（需要时触发 `dev` Windows CI 核验），随后启动 `R2-2`（`WIN-BUG-012A` 主机指纹校验）。
+- **Cross-machine Ready**: **NO** — `R2-1` 改动尚在本地工作区，提交推送 `origin/dev` 后即可恢复跨机接力。
