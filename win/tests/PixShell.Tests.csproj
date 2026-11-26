@@ -23,6 +23,9 @@
     <Compile Include="..\Store\SshHostKeyGuard.cs" Link="Store\SshHostKeyGuard.cs" />
     <Compile Include="..\Store\WebDavSecurityPolicy.cs" Link="Store\WebDavSecurityPolicy.cs" />
     <Compile Include="..\Proxy\ProxyPolicy.cs" Link="Proxy\ProxyPolicy.cs" />
+    <Compile Include="..\Terminal\TerminalOutputBatcher.cs" Link="Terminal\TerminalOutputBatcher.cs" />
+    <Compile Include="..\Terminal\TerminalSerialWriter.cs" Link="Terminal\TerminalSerialWriter.cs" />
+    <Compile Include="..\Highlight\SemanticHighlight.cs" Link="Highlight\SemanticHighlight.cs" />
     <Compile Include="..\Store\QuickCommands.cs" Link="Store\QuickCommands.cs" />
     <Compile Include="..\Store\ReleaseSelection.cs" Link="Store\ReleaseSelection.cs" />
     <Compile Include="..\Store\CommandSuggestions.cs" Link="Store\CommandSuggestions.cs" />

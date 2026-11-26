@@ -17,3 +17,13 @@ namespace PixShell.Logging
         public static void Error(string message, string category) { }
     }
 }
+
+namespace PixShell
+{
+    /// <summary>供 SemanticHighlight 纯逻辑单元测试读取默认空覆盖色，不加载 WPF 颜色画刷。</summary>
+    internal static class HighlightColors
+    {
+        public static string HighlightHex => "";
+        public static string PlainHex => "";
+    }
+}
