@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）与 R1 全阶段，现推进 R2（`WIN-BUG-002`、`012A`、`013A`、`018A`、`024`）。已完成 `R2-1`（`SSH.NET 2025.1.0 → 2026.0.1` 独立安全升级与 `ScpClient` `ShellQuote` 适配，`49/49` 测试与最新 `Release` 发布通过），待独立提交推送 `R2-1` 后推进 `R2-2`。macOS 保持不动。**
+**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）、R1 全阶段与 R2 全阶段（`R2-1`～`R2-3` 全部代码、`58/58` xUnit 自动化回归、完整 `Release` 发布及 4 项精简 GUI 冒烟确认通过，并已拆分提交推送 `origin/dev`）。现启动 R3（`WIN-BUG-025/026/027` 终端稳定性）。macOS 保持不动。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -43,9 +43,11 @@
   - **R1-1（`WIN-BUG-029`、`WIN-BUG-001A/B/C`、`WIN-BUG-014A`）**：已合入 `dev`（提交 `34b188b`）；待实机项已入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)；
   - **R1-2（`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`）**：已合入 `dev`（提交 `cfd477d`）；待实机项已入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)；
   - **R1-3（`WIN-BUG-011A/B`、`015B`、`019A`）**：已完成跨进程本地文件事务锁与损坏备份保护、跨卷目录移动回退、命令板按稳定 `SessionId` 锁定、隔离测试补强及 `46/46` 全量回归，已合入 `dev`；
-  - **R2（进行中：`WIN-BUG-002`、`012A`、`013A`、`018A`、`024`）**：
-    - `R2-1`（`WIN-BUG-002`）：已在本地工作区独立完成 `SSH.NET 2025.1.0 → 2026.0.1` 升级与 `ScpClient` `RemotePathTransformation.ShellQuote` 适配，`NU1903` 清零、`49/49` 全量测试及完整 Release 发布通过；
-    - `R2-2` / `R2-3`：待提交 `R2-1` 后依次推进主机指纹验证（`KnownHosts`）、凭据保护、代理及连接生命周期安全修复。
+  - **R2（全阶段编码与自动化验收完成：`WIN-BUG-002`、`012A`、`013A`、`018A`、`024`）**：
+    - `R2-1`（`WIN-BUG-002`）：`SSH.NET 2025.1.0 → 2026.0.1` 升级与 `ScpClient` `ShellQuote` 适配，已独立提交推送 `origin/dev`（提交 `14242ad`）；
+    - `R2-2`（`WIN-BUG-012A` + `024`）：`KnownHosts` 完整主机公钥校验（支持 `[host]:port`、`HashKnownHosts` `|1|...`、通配/否定、`@revoked` 与 `LocalFileTransaction` 并发互斥锁），统一封装 `SshHostKeyGuard` 接入 GUI `SshClient`/`SftpClient`/`ScpClient`、`ConnectViaOpenSSH` 逻辑主机名及 `HeadlessBridgeHost`；
+    - `R2-3`（`WIN-BUG-013A`、`018A`、`024`）：新增 `ProxyConnectionPolicy` 禁止 `ssh-jump`/残缺代理配置/FIDO2 OpenSSH 静默直连降级，代理会话跳过直连 `ProcSftpClient` 转走经代理 `ScpBackend`，修复 `ProxyConfig.NewId()` 36 进制异常，接入 `ProxyStore.TryUpsert`/`WebDavBackup.TrySave` 错误反馈与 `WebDavSecurityPolicy`（阻止向非回环明文 HTTP 发送 Basic 凭据），并在 `TerminalSession.Dispose()` 清理会话内存凭据。
+  - R3 核心稳定性重点为 `WIN-BUG-025/026/027` 终端无响应。
 - OpenWrt/Dropbear 重连问题本轮按外部/服务端或链路共享状态处理并结束客户端修复；未来仅在存在可重复的 PixShell/FinalShell 对照差异时，补齐 Dropbear、conntrack/防火墙和代理路径证据后再重开。
 - W3 已由 D-012 排除；W1、W2、W4 与 W5 的全部已确认实现事项已完成，待按用户约定统一验证。
 - 集中验证时覆盖 W5：`.env`、`config.json`、无扩展名和 Unicode 文件名；同名文件/目录不覆盖；权限失败反馈；三种远端后端不静默成功；创建后能打开、保存并在刷新后可见。
@@ -94,15 +96,16 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
   - 隔离环境集成脚本（`win/tests/Invoke-IsolatedIntegrationTests.ps1`）：在 WSL2 `Ubuntu` `/tmp/pixshell_itest_*` 验证真实 GNU `tar` 分阶段落盘（冲突跳过、`.env`/`..weird`/含空格文件迁移、`chmod 555` 只读目标非零报错）及 `LC_ALL=C ls -la` 权限/软链接/不可读目录输出通过；因本机未安装 Docker、Windows `sshd` 或 WSL `openssh-server`，实时 SSH/SFTP/SCP 守护进程集成测试明确记为 `Environment-Limited`；
   - 验收清单与实机状态：[MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) 已拆分为自动化单元测试、自动化集成测试与 6 项精简人工 GUI 冒烟清单；R1 6 项 GUI 冒烟保持 `Preliminary Pass` 状态。
 
-- R2-1（`WIN-BUG-002`：`SSH.NET 2025.1.0 → 2026.0.1` 独立升级与 `ScpClient` `ShellQuote` 适配，当前工作区）：
-  - 漏洞扫描：`dotnet list win/PixShell.csproj package --vulnerable --include-transitive` 与 `PixShell.Tests.csproj` 均报告无易受攻击包（原有 2 条 `NU1903` High 漏洞已消除）；
-  - 全量测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）xUnit **`49/49` 通过**（`0` 失败、`0` 跳过、`489 ms`，`0` 警告，含新增 3 项 `SshNetUpgradeTests`）；
-  - 增量编译与完整发布：`dotnet build win/PixShell.csproj -c Release -r win-x64 --no-restore` `0` 错误、`22` 条既有非阻断警告（`0` `CS0618`、无新增警告）；`win/build.ps1 -Action publish -Configuration Release -Runtime win-x64`（`Release / net10.0-windows / win-x64` self-contained）成功，产物 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 15:40:59`）与 `Renci.SshNet.dll`（`535040` 字节）校验完整。
+- R2-1（`WIN-BUG-002`）：已独立提交 `14242ad` 并推送 `origin/dev`（`NU1903` 与 `CS0618` 清零）。
+- R2-2 / R2-3 与 R2 阶段收尾验收（`WIN-BUG-012A`、`013A`、`018A`、`024`，已拆分提交并推送 `origin/dev`）：
+  - 全量测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）xUnit **`58/58` 通过**（`0` 失败、`0` 跳过、`450 ms`，`0` 警告；含 `SshNetUpgradeTests` 3 项、`HostKeyVerificationTests` 5 项、`ProxyAndSecurityPolicyTests` 4 项）；
+  - 完整发布：`win/build.ps1 -Action publish -Configuration Release -Runtime win-x64`（`Release / net10.0-windows / win-x64` self-contained）成功，`0` 错误，最新可执行文件 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 15:53:25`，`198144` 字节）；
+  - 集中冒烟验收：R2 精简人工 GUI 冒烟清单（`R2-S1`～`R2-S4`）已由用户确认符合预期，记为 `Passed`。
 
 ## Blockers
 
-- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；此外本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`（`/usr/sbin/sshd`、`sftp-server`），实时 SSH/SFTP/SCP 守护进程自动化集成测试处于 `Environment-Limited` 状态（不阻断 `R2-1` 提交或 `R2-2` 开发）。
+- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；此外本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`（`/usr/sbin/sshd`、`sftp-server`），实时 SSH/SFTP/SCP 守护进程自动化集成测试处于 `Environment-Limited` 状态（不阻断 R3 开发）。
 
 ## Next Action
 
-授权将当前干净隔离的 `R2-1` 切片（`SSH.NET 2026.0.1` 升级、`ScpClient` 安全转义、`SshNetUpgradeTests` 与文档）独立提交并推送 `origin/dev`（可选触发 `dev` Windows CI 核验工具链），随后直接启动 **R2-2（`WIN-BUG-012A` + `024` 主机指纹校验与安全连线策略）**。
+开展 **R3（`WIN-BUG-025/026/027` 终端无响应、输出与交互生命周期稳定性修复）**，先定位相关源码缺陷路径并补充自动化回归测试基线。

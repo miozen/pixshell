@@ -62,9 +62,31 @@
 
 ---
 
-## 四、R2 阶段验收追踪（`R2-1` 已完成，待 R2 收尾集中冒烟）
+## 四、R2 阶段验收清单（`SSH.NET` 升级、主机身份、凭据与代理安全）
 
-| 切片 / 编号 | 关联缺陷 | 验证层级 | 验证内容与工具链覆盖 | 状态 |
+- **最新阶段构建（R2 完整发布）**：`Release / net10.0-windows / win-x64`（self-contained），完整路径 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（构建时间 `2026/11/26 15:53:25`，`0` 错误，xUnit **`58/58` 通过**）。
+
+### 4.1 R2 自动化单元测试项（12 项新增，xUnit `net10.0`）
+
+| 追溯编号 | 关联缺陷 | 覆盖内容与验证边界 | 对应测试方法（`win/tests/`） | 状态 |
 | :--- | :--- | :--- | :--- | :--- |
-| **R2-1 / 单元与依赖检查** | `WIN-BUG-002` | 自动化单元测试 / 包扫描 | `SSH.NET` 升级至 `2026.0.1`，`dotnet list package --vulnerable` 确认 2 条 `NU1903` 漏洞清零；`SshNetUpgradeTests`（3 项）验证程序集版本、`RemotePathTransformation.ShellQuote` 对 `$(...)`/反引号/单引号的转义及 `ScpClient`/`SftpClient`/`ProxyTypes` 构造兼容性（`49/49 Passed`）。 | `Passed` |
-| **R2-1 / 协议回环与阶段冒烟** | `WIN-BUG-002` | 自动化集成 / 精简冒烟 | 实时 SSH/SFTP/SCP 守护进程 SCP 传输回环在无 `sshd` 环境为 `Environment-Limited`；升级后真实连接、SCP 回退下载/上传交互纳入 R2 阶段收尾集中精简冒烟（不逐切片阻塞人工验收）。 | `Environment-Limited`（协议回环）/ `Pending`（阶段汇总冒烟） |
+| **R2-1** | `WIN-BUG-002` | `SSH.NET 2026.0.1` 程序集版本、`RemotePathTransformation.ShellQuote` 对 `$(...)`/反引号/单引号安全转义、`ScpClient`/`SftpClient`/`ProxyTypes` 构造兼容性及 NuGet 漏洞清零 | `SshNetUpgradeTests.SshNetAssemblyIsPatched2026_0_1OrNewer`<br>`SshNetUpgradeTests.ScpShellQuoteNeutralizesShellMetacharactersAndConfiguresScpClientSafely`<br>`SshNetUpgradeTests.ConnectionInfoAndSftpClientConstructCleanlyWithProxyTypesAndModernAlgorithms` | `Passed` |
+| **R2-2** | `WIN-BUG-012A`, `WIN-BUG-024` | 首次建连写入规范主机/`[host]:port`、复连严格校验匹配、`HostKeyEventArgs` 拦截指纹篡改并返回包含期待/实际 SHA256 指纹的 `HostKeyVerificationException`、支持 `HashKnownHosts`（`\|1\|...`）/通配/否定/撤销 `@revoked`、并发写入加锁不损坏 `known_hosts` | `HostKeyVerificationTests.FirstConnectRecordsCanonicalHostAndRepeatConnectMatchesAcrossPortAndCase`<br>`HostKeyVerificationTests.SshHostKeyGuardBlocksChangedKeyAndWrapsMismatchWithFingerprints`<br>`HostKeyVerificationTests.MatchesHashedKnownHostsNegatedPatternsAndBlocksRevokedKeys`<br>`HostKeyVerificationTests.StrictUnknownModeRejectsUnknownHostWithoutWritingFile`<br>`HostKeyVerificationTests.ConcurrentFirstConnectsRecordAllHostsCleanlyWithoutCorruption` | `Passed` |
+| **R2-3** | `WIN-BUG-013A`, `WIN-BUG-018A`, `WIN-BUG-024` | 禁止 `ssh-jump` / 残缺主机 / 非法端口 / FIDO2 OpenSSH 代理静默直连降级；兼容历史 `"type": 200` 反序列化并拒绝直连；修复 `ProxyConfig.NewId()` Base36 崩溃；阻止非回环明文 HTTP WebDAV 凭据外泄 | `ProxyAndSecurityPolicyTests.SshJumpAndMalformedProxyAreRejectedInsteadOfSilentDirectFallback`<br>`ProxyAndSecurityPolicyTests.Fido2OpenSshRejectsActiveProxyRatherThanBypassing`<br>`ProxyAndSecurityPolicyTests.LegacyNumericProxyType200DeserializesAsSshJumpAndIsBlocked`<br>`ProxyAndSecurityPolicyTests.WebDavSecurityPolicyAllowsHttpsAndLoopbackHttpButBlocksRemotePlaintextHttp` | `Passed` |
+
+### 4.2 R2 自动化协议集成测试项
+
+| 追溯编号 | 关联缺陷 | 隔离环境与验证内容 | 依赖条件 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **R2-IT1** | `WIN-BUG-002`, `012A`, `013A`, `024` | 真实回环 `sshd` / SOCKS5 代理下的 `SshClient`/`SftpClient`/`ScpClient` 指纹篡改拒连、首次自动记入、经代理禁用直连 `ProcSftpClient` 及 `ScpBackend` 传输回环 | Docker / Windows OpenSSH Server / WSL `openssh-server` + 本地代理服务 | `Environment-Limited`（未安装 `sshd`/Docker，未执行，**未标记通过**） |
+
+### 4.3 R2 精简人工 GUI 冒烟清单（仅交互与基础体验，4 项）
+
+不再要求人工造 `known_hosts` 哈希行、`@revoked` 条目或手动篡改服务端密钥；仅确认日常交互与明确报错反馈：
+
+| 冒烟编号 | 关联缺陷 | 测试前置条件 | 精简操作步骤 | 预期结果 | 验收状态 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **R2-S1** | `WIN-BUG-012A`, `024` | 已在最新版程序中准备任意一台可正常连接的常用 SSH 主机。 | 1. 正常连接该主机打开终端及 SFTP 文件列表；<br>2. 打开「文件 → 主机指纹管理…」查看列表中是否出现该主机 SHA256/MD5 指纹。 | 1. 首次连接成功时自动写入 `%USERPROFILE%\.ssh\known_hosts` 且后续重连/SFTP 无异常阻塞；<br>2. 「主机指纹管理…」正常展示与删除（注意：仅删除测试记录即可，勿误删其他重要主机）。 | `Passed`（用户确认符合预期） |
+| **R2-S2** | `WIN-BUG-002`, `013A` | 正常主机（若本机恰好有可用 SOCKS5/HTTP 代理，可选关联测试）。 | 1. 打开「代理管理…」点「＋新建代理」保存一条配置（验证不再崩溃），再编辑/删除该临时代理；<br>2. 若使用 SCP 回退或 SFTP 主路径，确认文件浏览/小文件下载正常。 | 1. 新建/编辑/保存代理界面不再抛 `Invalid Base` 或崩溃，列表正常回显；<br>2. SFTP/SCP 浏览与下载正常。 | `Passed`（用户确认符合预期） |
+| **R2-S3** | `WIN-BUG-018A`, `013A` | 无需真实服务端即可测试：在「备份与恢复 → WebDAV 设置」填入远端 `http://example.com/backup.json`。 | 1. 尝试保存并触发「上传到 WebDAV」或检查配置提示（随后清回原设置或取消）；<br>2. 如有历史 `ssh-jump` 代理主机尝试连接时观察提示。 | 1. 非回环 `http://` WebDAV 明确报错拒绝发送明文 Basic 凭据；<br>2. 不支持的跳板代理显式提示不支持并拦截，不再静默直连。 | `Passed`（用户确认符合预期） |
+| **R2-S4** | `WIN-BUG-024` | 已连接一个正常 SSH 会话标签。 | 1. 执行断开重连操作，并关闭该标签；<br>2. 重新双击原主机验证界面响应与 DPAPI 自动登录正常。 | 1. 断开、重连与关签过程无报错或卡死，既有 DPAPI 凭据正常加载。 | `Passed`（用户确认符合预期） |

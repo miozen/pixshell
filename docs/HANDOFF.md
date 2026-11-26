@@ -1,22 +1,23 @@
 # 开发接力状态
 
-- **Last Updated**: 2026-11-26（完成 `R2-1`：`SSH.NET 2025.1.0 → 2026.0.1` 独立安全升级、`ScpClient` `ShellQuote` 适配与全量工具链验证）
-- **Current Branch**: `dev`（跟踪 `origin/dev`，`HEAD` 为 `6411115`）
-- **HEAD / Last Code Commit**: `6411115` — `docs: update test responsibility policy, R1 checklist, plan, and handoff`（已推送 `origin/dev`）。
-- **Working Tree**: **DIRTY（R2-1 独立依赖升级切片）** — 包含 `win/PixShell.csproj`、`win/TerminalSession.cs`、`win/tests/PixShell.Tests.csproj`、`win/tests/SshNetUpgradeTests.cs` 及 `docs/` 进度记录；未混入 `R2-2` 业务逻辑，未改 `mac/`。
-- **Current Phase**: **R2 进行中**（`R2-1` 编码、漏洞扫描、`49/49` 测试与完整 Release 发布已完成，待独立提交推送 `origin/dev` 后推进 `R2-2`）。
-- **Current Task**: 提交推送独立的 `R2-1` 依赖升级切片（及可选 `dev` Windows CI 核验）后，启动 **R2-2（`WIN-BUG-012A` + `024` 主机指纹验证基线）**。
-- **Last Completed**:
-  - `R2-1`（`WIN-BUG-002`）：将 `SSH.NET` 由 `2025.1.0` 独立升级至 `2026.0.1`，消除 `GHSA-mggc-4xg6-vcxf` 与 `GHSA-q939-rpr3-3284`（`NU1903` 清零）；将 `TerminalSession.CreateScpClient()` 显式迁移为 `new ScpClient(info, RemotePathTransformation.ShellQuote)`（消除 `CS0618`）；在 `PixShell.Tests` 接入 `SSH.NET 2026.0.1` 并新增 3 项 `SshNetUpgradeTests`。
-- **Uncommitted Work**: `win/PixShell.csproj`、`win/TerminalSession.cs`、`win/tests/PixShell.Tests.csproj`、`win/tests/SshNetUpgradeTests.cs`、`docs/CURRENT_PLAN.md`、`docs/HANDOFF.md`、`docs/MANUAL_TEST_CHECKLIST.md`。
-- **Validation Performed**:
-  - 漏洞扫描：`dotnet list win/PixShell.csproj package --vulnerable --include-transitive` 与 `PixShell.Tests.csproj` 均报告无易受攻击包；
-  - 构建与发布：`Release / net10.0-windows / win-x64` 增量编译 `0` 错误、`22` 条既有非阻断警告（无新增警告、`0` `CS0618`）；self-contained 发布成功，产物 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 15:40:59`，`198144` 字节）与 `Renci.SshNet.dll`（`535040` 字节）；
-  - 自动化测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）xUnit **`49/49` 通过**（`0` 失败、`0` 跳过、`489 ms`）。
+- **Last Updated**: 2026-11-26（R2 阶段收尾拆分提交并推送 `origin/dev`，启动 R3 终端稳定性专项修复）
+- **Current Branch**: `dev`（跟踪 `origin/dev`，含 R2 全部修复、测试及验收文档）
+- **Working Tree**: **CLEAN**（R2 业务修复、回归测试与阶段文档已拆分提交并推送 `origin/dev`；未改 `mac/`）
+- **Current Phase**: **R2 已完成收尾**，现进入 **R3（`WIN-BUG-025/026/027` 终端稳定性）**。
+- **Current Task**: 定位并修复 R3 终端交互/输出流/WebView2/会话连接相关的核心稳定性缺陷（`WIN-BUG-025`、`026`、`027`），补充自动化回归测试并逐片验证。
+- **Last Completed（R2 收尾）**:
+  - `R2-1`（`WIN-BUG-002`）：`SSH.NET 2025.1.0 → 2026.0.1` 升级与 `ScpClient` `ShellQuote` 适配（`14242ad`）；
+  - `R2-2`（`WIN-BUG-012A` + `024`）：`KnownHosts` 完整校验（含 `HashKnownHosts`、`[host]:port`、`@revoked`、并发互斥锁）与 `SshHostKeyGuard` 接入；
+  - `R2-3`（`WIN-BUG-013A`、`018A`、`024`）：`ProxyConnectionPolicy` 防静默降级、修复 `ProxyConfig.NewId()` Base36 崩溃、`WebDavSecurityPolicy` 防非回环 HTTP Basic 明文泄漏、错误界面反馈及会话清理；
+  - R2 阶段验收：`58/58` xUnit 通过、完整 `Release` 自包含发布通过、4 项精简 GUI 冒烟（`R2-S1`～`R2-S4`）已确认通过。
+- **Validation Performed（R2 最终状态）**:
+  - 构建：`Release / net10.0-windows / win-x64`（self-contained），`win\publish\win-x64\PixShell.exe`（`2026/11/26 15:53:25`，`198144` 字节），`0` 错误；
+  - 自动化测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）**`58/58` 通过**（`0` 失败 / `0` 跳过 / `450 ms` / `0` 警告）；
+  - 人工冒烟：[MANUAL_TEST_CHECKLIST.md](file:///d:/20_Projects/pixshell/docs/MANUAL_TEST_CHECKLIST.md) `R2-S1`～`R2-S4` 均已确认 `Passed`。
 - **Validation Pending / Environment-Limited**:
-  - `Environment-Limited`：实时 SSH/SFTP/SCP 守护进程回环集成测试（本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`）；
-  - `Pending`：`R2-1` 可选 `dev` 手动 CI 工具链验证、R2 阶段收尾集中冒烟，以及 `R2-2`、`R2-3`、`R3–R5`。
+  - `Environment-Limited`：实时 SSH/SFTP/SCP 守护进程与代理回环集成测试（本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`）；
+  - `Pending`：R3–R5。
 - **Known Issues / Blockers**:
-  - 本机未安装 `docker`、Windows/WSL `sshd`、`gh` CLI 与 `ISCC.exe`；当前无阻断 `R2-1` 提交或 `R2-2` 开发的问题。
-- **Exact Next Action**: 获确认后将当前 `R2-1`（`SSH.NET 2026.0.1` 升级及测试/文档）独立提交并推送 `origin/dev`（需要时触发 `dev` Windows CI 核验），随后启动 `R2-2`（`WIN-BUG-012A` 主机指纹校验）。
-- **Cross-machine Ready**: **NO** — `R2-1` 改动尚在本地工作区，提交推送 `origin/dev` 后即可恢复跨机接力。
+  - 本机未安装 `docker`、Windows/WSL `sshd`、`gh` CLI 与 `ISCC.exe`。
+- **Exact Next Action**: 开展 R3 终端稳定性缺陷（`WIN-BUG-025/026/027`）源码排查与切片实施，优先补充纯逻辑回归测试并完成增量编译验证。
+- **Cross-machine Ready**: **YES** — R2 全部修复、测试与文档已完成拆分提交并推送 `origin/dev`。
