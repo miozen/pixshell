@@ -13,6 +13,7 @@ using Microsoft.Win32;
 using PixShell.Logging;
 using PixShell.Sftp;
 using PixShell.Sftp.RemoteFs;
+using PixShell.Store;
 using Renci.SshNet;
 using Renci.SshNet.Sftp;
 
@@ -123,7 +124,15 @@ public partial class SftpPanel : UserControl
     {
         InitializeComponent();
         _localDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        LoadLocal(_localDir);
+        RunSftpUiTask(LoadLocal(_localDir), "加载本地目录");
+    }
+
+    private void RunSftpUiTask(Task task, string operationName)
+    {
+        AsyncTaskObserver.Observe(task, "sftp", operationName, err =>
+        {
+            Dispatcher.BeginInvoke(() => StatusLabel.Text = $"{operationName}失败: {err}");
+        });
     }
 
     // =====================================================================
@@ -599,7 +608,7 @@ public partial class SftpPanel : UserControl
 
     public void Refresh()
     {
-        if (!_localHidden) LoadLocal(_localDir);
+        if (!_localHidden) RunSftpUiTask(LoadLocal(_localDir), "刷新本地目录");
         _ = LoadRemoteDetail(_remoteDir);
     }
 
@@ -620,8 +629,13 @@ public partial class SftpPanel : UserControl
         var fs = _remoteFs;
         if (fs is not { Connected: true }) return;
         var snap = CaptureOperationSnapshot();
-        var name = Prompt("新建远端目录名：");
-        if (string.IsNullOrWhiteSpace(name)) return;
+        var requested = Prompt("新建远端目录名：");
+        if (requested == null) return;
+        if (!RemoteFileName.TryNormalize(requested, out var name, out var error))
+        {
+            StatusLabel.Text = error;
+            return;
+        }
         if (!IsSnapshotStillActive(snap))
         {
             StatusLabel.Text = "目录或会话已切换，新建目录已取消";
@@ -775,8 +789,14 @@ public partial class SftpPanel : UserControl
         if (rows.Count == 0) return;
         var snap = CaptureOperationSnapshot();
         var r = rows[0];
-        var name = Prompt($"重命名\"{r.Name}\"为：", r.Name);
-        if (string.IsNullOrWhiteSpace(name) || name == r.Name) return;
+        var requested = Prompt($"重命名\"{r.Name}\"为：", r.Name);
+        if (requested == null) return;
+        if (!RemoteFileName.TryNormalize(requested, out var name, out var error))
+        {
+            StatusLabel.Text = error;
+            return;
+        }
+        if (name == r.Name) return;
         if (!IsSnapshotStillActive(snap))
         {
             StatusLabel.Text = "目录或会话已切换，已取消重命名";
@@ -849,7 +869,7 @@ public partial class SftpPanel : UserControl
         var needPack = PackTransferEnabled && autoNeed;
         if (!needPack)
         {
-            UploadDirect(paths, fs);
+            RunSftpUiTask(UploadDirect(paths, fs), "文件直传上传");
             return;
         }
         if (ExecRunner == null) { StatusLabel.Text = "需要 SSH 会话才能打包上传"; return; }
@@ -862,28 +882,39 @@ public partial class SftpPanel : UserControl
         var snap = CaptureOperationSnapshot();
         var skippedDirs = 0;
         var uploaded = 0;
-        foreach (var one in paths)
+        try
         {
-            if (!IsSnapshotStillActive(snap))
+            foreach (var one in paths)
             {
-                StatusLabel.Text = "目录或会话已切换，上传已停止";
-                return;
+                if (!IsSnapshotStillActive(snap))
+                {
+                    StatusLabel.Text = "目录或会话已切换，上传已停止";
+                    return;
+                }
+                if (Directory.Exists(one)) { skippedDirs++; continue; }
+                if (!File.Exists(one)) continue;
+                var remote = ResolveUploadDestination(fs, JoinRemote(snap.Directory, Path.GetFileName(one)));
+                if (!IsSnapshotStillActive(snap))
+                {
+                    StatusLabel.Text = "目录或会话已切换，上传已取消";
+                    return;
+                }
+                if (remote == null) continue;
+                if (await UploadSingleDirectAsync(one, remote, remote + ".pixshell.part." + Guid.NewGuid().ToString("N"), fs)) uploaded++;
             }
-            if (Directory.Exists(one)) { skippedDirs++; continue; }
-            if (!File.Exists(one)) continue;
-            var remote = ResolveUploadDestination(fs, JoinRemote(snap.Directory, Path.GetFileName(one)));
-            if (!IsSnapshotStillActive(snap))
-            {
-                StatusLabel.Text = "目录或会话已切换，上传已取消";
-                return;
-            }
-            if (remote == null) continue;
-            if (await UploadSingleDirectAsync(one, remote, remote + ".pixshell.part." + Guid.NewGuid().ToString("N"), fs)) uploaded++;
+            StatusLabel.Text = skippedDirs > 0
+                ? $"直传完成（{skippedDirs} 个目录已跳过，请开启「打包传输」）"
+                : (uploaded > 0 ? "上传完成" : "无可上传文件");
         }
-        StatusLabel.Text = skippedDirs > 0
-            ? $"直传完成（{skippedDirs} 个目录已跳过，请开启「打包传输」）"
-            : (uploaded > 0 ? "上传完成" : "无可上传文件");
-        if (uploaded > 0 && IsSnapshotStillActive(snap)) _ = LoadRemoteDetail(snap.Directory);
+        catch (Exception ex)
+        {
+            Log.Error("直传上传失败: " + ex.Message, "sftp");
+            StatusLabel.Text = "上传失败: " + ex.Message;
+        }
+        finally
+        {
+            if (uploaded > 0 && IsSnapshotStillActive(snap)) _ = LoadRemoteDetail(snap.Directory);
+        }
     }
 
     private string? ResolveUploadDestination(IRemoteFs fs, string remote)
@@ -1011,7 +1042,7 @@ public partial class SftpPanel : UserControl
         var needPack = PackTransferEnabled && SftpTransfer.ShouldPack(rows.Count, rows[0].IsDir, rows[0].Size);
         if (!needPack)
         {
-            DownloadDirect(rows, destDir, fs);
+            RunSftpUiTask(DownloadDirect(rows, destDir, fs), "文件直传下载");
             return;
         }
         if (ExecRunner == null) { StatusLabel.Text = "需要 SSH 会话才能打包下载"; return; }
@@ -1023,22 +1054,33 @@ public partial class SftpPanel : UserControl
     {
         var skippedDirs = 0;
         var downloaded = 0;
-        try { Directory.CreateDirectory(destDir); } catch { /* 目标目录创建失败后面再报 */ }
-        foreach (var r in rows)
+        try
         {
-            if (r.IsDir)
+            Directory.CreateDirectory(destDir);
+            foreach (var r in rows)
             {
-                skippedDirs++;
-                continue;
+                if (r.IsDir)
+                {
+                    skippedDirs++;
+                    continue;
+                }
+                var local = ResolveDownloadDestination(destDir, r.Name);
+                if (local == null) continue;
+                if (await DownloadSingleDirectAsync(r, local, fs)) downloaded++;
             }
-            var local = ResolveDownloadDestination(destDir, r.Name);
-            if (local == null) continue;
-            if (await DownloadSingleDirectAsync(r, local, fs)) downloaded++;
+            StatusLabel.Text = skippedDirs > 0
+                ? $"直传完成（{skippedDirs} 个目录已跳过，请开启「打包传输」）"
+                : (downloaded > 0 ? $"下载完成: {destDir}" : "无可下载文件");
         }
-        StatusLabel.Text = skippedDirs > 0
-            ? $"直传完成（{skippedDirs} 个目录已跳过，请开启「打包传输」）"
-            : (downloaded > 0 ? $"下载完成: {destDir}" : "无可下载文件");
-        if (downloaded > 0 && !_localHidden) LoadLocal(_localDir);
+        catch (Exception ex)
+        {
+            Log.Error("直传下载失败: " + ex.Message, "sftp");
+            StatusLabel.Text = "下载失败: " + ex.Message;
+        }
+        finally
+        {
+            if (downloaded > 0 && !_localHidden) RunSftpUiTask(LoadLocal(_localDir), "刷新本地目录");
+        }
     }
 
     /// <summary>保留完整同名文件，只有用户显式选择覆盖才替换；另存为自动生成不冲突文件名。</summary>
@@ -1168,7 +1210,7 @@ public partial class SftpPanel : UserControl
             {
                 StatusLabel.Text = $"已下载并解压 {items.Count} 项 → {destDir}";
                 Log.Info("打包下载完成 → " + destDir, "sftp");
-                if (!_localHidden) LoadLocal(_localDir);
+                if (!_localHidden) RunSftpUiTask(LoadLocal(_localDir), "刷新本地目录");
             }
         }
         TransferTasks.Finish(taskId, err == null && applied, err ?? (applied ? "" : "用户取消了目标目录合并"));
@@ -1243,7 +1285,7 @@ public partial class SftpPanel : UserControl
     {
         _localHidden = !_localHidden;
         ApplyLocalHidden();
-        if (!_localHidden) LoadLocal(_localDir);
+        if (!_localHidden) RunSftpUiTask(LoadLocal(_localDir), "加载本地目录");
     }
 
     private void ApplyLocalHidden()
@@ -1264,7 +1306,7 @@ public partial class SftpPanel : UserControl
             if (_localHiddenBeforeChat is { } before) _localHidden = before;   // 原样还回去
             _localHiddenBeforeChat = null;
             ApplyLocalHidden();
-            if (!_localHidden) LoadLocal(_localDir);
+            if (!_localHidden) RunSftpUiTask(LoadLocal(_localDir), "刷新本地目录");
             return;
         }
         _localHiddenBeforeChat = _localHidden;   // 记住原样，退出时还原
@@ -1304,7 +1346,7 @@ public partial class SftpPanel : UserControl
     private void LocalList_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (LocalList.SelectedItem is not FsRow r || !r.IsDir) return;
-        LoadLocal(Path.Combine(_localDir, r.Name));
+        RunSftpUiTask(LoadLocal(Path.Combine(_localDir, r.Name)), "打开本地目录");
     }
 
     // =====================================================================
@@ -1394,18 +1436,18 @@ public partial class SftpPanel : UserControl
         switch (e.Key)
         {
             case Key.F5: Refresh(); e.Handled = true; break;
-            case Key.F2: Rename(); e.Handled = true; break;
-            case Key.Delete: Delete(); e.Handled = true; break;
+            case Key.F2: RunSftpUiTask(Rename(), "重命名"); e.Handled = true; break;
+            case Key.Delete: RunSftpUiTask(Delete(), "删除"); e.Handled = true; break;
         }
     }
 
     private void CtxOpen_Click(object sender, RoutedEventArgs e) => CtxOpenAction();
     private void CtxDownload_Click(object sender, RoutedEventArgs e) => Download();
     private void CtxUpload_Click(object sender, RoutedEventArgs e) => Upload();
-    private void CtxNewFile_Click(object sender, RoutedEventArgs e) => NewFile();
-    private void CtxMkdir_Click(object sender, RoutedEventArgs e) => Mkdir();
-    private void CtxRename_Click(object sender, RoutedEventArgs e) => Rename();
-    private void CtxDelete_Click(object sender, RoutedEventArgs e) => Delete();
+    private void CtxNewFile_Click(object sender, RoutedEventArgs e) => RunSftpUiTask(NewFile(), "新建文件");
+    private void CtxMkdir_Click(object sender, RoutedEventArgs e) => RunSftpUiTask(Mkdir(), "新建目录");
+    private void CtxRename_Click(object sender, RoutedEventArgs e) => RunSftpUiTask(Rename(), "重命名");
+    private void CtxDelete_Click(object sender, RoutedEventArgs e) => RunSftpUiTask(Delete(), "删除");
     private void CtxChmod_Click(object sender, RoutedEventArgs e) => CtxChmod();
     private void CtxCopyPath_Click(object sender, RoutedEventArgs e) => CopyPath();
     private void CtxInsertToCommand_Click(object sender, RoutedEventArgs e) => InsertToCommand();

@@ -1617,7 +1617,11 @@ public partial class MainWindow : Window
         var win = new UI.EditorWindow { Owner = this };
         win.Open(doc.RemotePath, doc.Text);
         // 新签名：编辑器要求回报保存结果（null=成功），成功才清脏/才关闭；结果由编辑器自己在头部显示。
-        win.OnSave = (t, report) => Sftp.SaveRemoteFile(doc, t, err => report(err));
+        win.OnSave = (t, report) => Store.AsyncTaskObserver.Observe(
+            Sftp.SaveRemoteFile(doc, t, err => report(err)),
+            "editor",
+            "保存远端文件",
+            err => report(err));
         // 非模态：编辑远端文件时常要把编辑器挪开对照终端（对齐 mac 独立窗口的初衷）。
         win.Show();
     }
@@ -2028,9 +2032,9 @@ public partial class MainWindow : Window
     private void SftpRefresh_Click(object sender, RoutedEventArgs e) => Sftp.Refresh();
     private void SftpDownload_Click(object sender, RoutedEventArgs e) => Sftp.Download();
     private void SftpUpload_Click(object sender, RoutedEventArgs e) => Sftp.Upload();
-    private void SftpNewFile_Click(object sender, RoutedEventArgs e) => Sftp.NewFile();
-    private void SftpMkdir_Click(object sender, RoutedEventArgs e) => Sftp.Mkdir();
-    private void SftpDelete_Click(object sender, RoutedEventArgs e) => Sftp.Delete();
+    private void SftpNewFile_Click(object sender, RoutedEventArgs e) => Store.AsyncTaskObserver.Observe(Sftp.NewFile(), "sftp", "新建文件", err => Dispatcher.BeginInvoke(() => SetStatus("新建文件失败: " + err)));
+    private void SftpMkdir_Click(object sender, RoutedEventArgs e) => Store.AsyncTaskObserver.Observe(Sftp.Mkdir(), "sftp", "新建目录", err => Dispatcher.BeginInvoke(() => SetStatus("新建目录失败: " + err)));
+    private void SftpDelete_Click(object sender, RoutedEventArgs e) => Store.AsyncTaskObserver.Observe(Sftp.Delete(), "sftp", "删除", err => Dispatcher.BeginInvoke(() => SetStatus("删除失败: " + err)));
     private void SftpToggleLocal_Click(object sender, RoutedEventArgs e) => Sftp.ToggleLocal();
 
     /// <summary>坞里的机器人按钮：切换左栏「本地文件 / 与本机 agent 对话」。</summary>

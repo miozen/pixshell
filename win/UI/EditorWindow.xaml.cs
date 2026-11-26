@@ -34,6 +34,7 @@ public partial class EditorWindow : Window
     private bool _wrapEnabled;
     private bool _isDirty;
     private bool _isLoadingDocument;
+    private bool _isClosed;
     private readonly Paragraph _paragraph = new();
     private readonly DispatcherTimer _rehighlightTimer;
 
@@ -46,7 +47,6 @@ public partial class EditorWindow : Window
     private ListBox? _completionList;
     private Popup? _completionPopup;
     private List<(string Label, string Detail)> _completionItems = new();
-    private int _completionIndex;
 
     private static readonly Dictionary<string, Brush> BrushCache = new();
 
@@ -68,6 +68,7 @@ public partial class EditorWindow : Window
         Editor.MouseRightButtonUp += Editor_MouseRightButtonUp;
         Editor.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(Editor_ScrollChanged));
         Closing += EditorWindow_Closing;
+        Closed += (_, _) => _isClosed = true;
         ApplyWrapSetting();
     }
 
@@ -122,14 +123,23 @@ public partial class EditorWindow : Window
         _lsp = client;
         client.ReadyChanged += ok =>
         {
-            _lspAvailable = ok;
-            Log.Info(ok ? "LSP 就绪" : "LSP 启动失败", "lsp");
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_isClosed) return;
+                _lspAvailable = ok;
+                Log.Info(ok ? "LSP 就绪" : "LSP 启动失败", "lsp");
+            });
         };
         client.Diagnostics += list =>
         {
-            _diagnostics.Clear();
-            _diagnostics.AddRange(list);
-            ApplyDiagnostics();
+            var snapshot = list.ToList();
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_isClosed) return;
+                _diagnostics.Clear();
+                _diagnostics.AddRange(snapshot);
+                ApplyDiagnostics();
+            });
         };
         client.Start(dir, _lspUri, text);
     }
@@ -152,9 +162,9 @@ public partial class EditorWindow : Window
         foreach (var d in _diagnostics)
         {
             if (d.Start < 0 || d.Start + d.Length > full.Length) continue;
-            var tp = GetTextPointerAtOffset(d.Start);
-            if (tp == null) continue;
-            var range = new TextRange(tp, GetTextPointerAtOffset(d.Start + d.Length));
+            var startTp = FindPointerAtOffset(d.Start);
+            var endTp = FindPointerAtOffset(d.Start + d.Length);
+            var range = new TextRange(startTp, endTp);
             var brush = d.IsError ? Brushes.Red : Brushes.Orange;
             // Run 没有 TextDecorations 属性；TextBlock.TextDecorationsProperty 是 WPF 文本下划线的正主，
             // 对 TextRange 应用时对 Inline 同样生效（TextBlock.TextDecorationsProperty 是 Attached 语义）。
@@ -175,19 +185,6 @@ public partial class EditorWindow : Window
         if (string.IsNullOrEmpty(full)) return;
         var range = new TextRange(Editor.Document.ContentStart, Editor.Document.ContentEnd);
         range.ApplyPropertyValue(TextBlock.TextDecorationsProperty, new TextDecorationCollection());
-    }
-
-    private TextPointer? GetTextPointerAtOffset(int offset)
-    {
-        var pos = Editor.Document.ContentStart;
-        var remaining = offset;
-        while (pos.GetPositionAtOffset(Math.Min(remaining, 1024)) is { } next && next.CompareTo(pos) > 0)
-        {
-            pos = next;
-            remaining -= 1024;
-            if (remaining <= 0) break;
-        }
-        return remaining <= 0 ? pos : null;
     }
 
     /// <summary>右键菜单：悬停 / 跳转定义（仅 .rs + LSP 就绪显示）。</summary>
@@ -242,8 +239,12 @@ public partial class EditorWindow : Window
         var (line, col, _) = CurrentPosition();
         _lsp?.HoverAsync(_lspUri, line, col, text =>
         {
-            if (!string.IsNullOrEmpty(text))
+            if (string.IsNullOrEmpty(text)) return;
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_isClosed) return;
                 MessageBox.Show(this, text, "LSP 悬停", MessageBoxButton.OK, MessageBoxImage.Information);
+            });
         });
     }
 
@@ -254,22 +255,22 @@ public partial class EditorWindow : Window
         _lsp?.DefinitionAsync(_lspUri, line, col, pos =>
         {
             if (pos == null) return;
-            var full = ExtractPlainText();
-            var offset = 0;
-            for (int l = 0; l < pos.Value.Line; l++)
+            Dispatcher.BeginInvoke(() =>
             {
-                var nl = full.IndexOf('\n', offset);
-                if (nl < 0) return;
-                offset = nl + 1;
-            }
-            offset = Math.Min(offset + pos.Value.Char, full.Length);
-            var tp = GetTextPointerAtOffset(offset);
-            if (tp != null)
-            {
-                Editor.CaretPosition = tp;
+                if (_isClosed) return;
+                var full = ExtractPlainText();
+                var offset = 0;
+                for (int l = 0; l < pos.Value.Line; l++)
+                {
+                    var nl = full.IndexOf('\n', offset);
+                    if (nl < 0) return;
+                    offset = nl + 1;
+                }
+                offset = Math.Min(offset + pos.Value.Char, full.Length);
+                Editor.CaretPosition = FindPointerAtOffset(offset);
                 var sv = FindVisualChild<ScrollViewer>(Editor);
                 sv?.ScrollToVerticalOffset(pos.Value.Line * 18.0); // 近似行高滚动到目标行
-            }
+            });
         });
     }
 
@@ -280,9 +281,12 @@ public partial class EditorWindow : Window
         _lsp?.CompletionAsync(_lspUri, line, col, items =>
         {
             if (items.Count == 0) return;
-            _completionItems = items;
-            _completionIndex = 0;
-            Dispatcher.BeginInvoke(() => ShowCompletionPopup(offset));
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_isClosed) return;
+                _completionItems = items;
+                ShowCompletionPopup(offset);
+            });
         });
     }
 
@@ -745,8 +749,9 @@ public partial class EditorWindow : Window
             return;
         }
         SetSaveStatus(L10n.T("editor.saving"), ok: null);
-        OnSave.Invoke(text, err => Dispatcher.Invoke(() =>
+        OnSave.Invoke(text, err => Dispatcher.BeginInvoke(() =>
         {
+            if (_isClosed) return;
             if (err == null)
             {
                 _isDirty = false;
@@ -791,10 +796,17 @@ public partial class EditorWindow : Window
 
     private void EditorWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        if (_isDirty)
+        {
+            e.Cancel = true; // 拦截默认关闭，走 RequestClose 的确认流程（它会在用户选择后再真正 Close）
+            RequestClose();
+            return;
+        }
+        _isClosed = true;
+        _rehighlightTimer.Stop();
+        _lspChangeTimer.Stop();
+        if (_completionPopup != null) _completionPopup.IsOpen = false;
         StopLsp(); // 关窗即停 rust-analyzer 进程，避免残留
-        if (!_isDirty) return;
-        e.Cancel = true; // 拦截默认关闭，走 RequestClose 的确认流程（它会在用户选择后再真正 Close）
-        RequestClose();
     }
 
     private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
