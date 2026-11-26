@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）、R1-1（`WIN-BUG-029`、`WIN-BUG-001A/B/C`、`WIN-BUG-014A`）及 R1-2（`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`），待人工项已并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)；下一步提交 `R1-2` 并推进 `R1-3` 收尾 R1。macOS 保持不动。**
+**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）与 R1 全阶段（`R1-1`、`R1-2`、`R1-3` 全部代码修复、完整 Release 发布、`46/46` xUnit 自动化回归及 WSL 隔离集成检查通过，并已提交推送 `origin/dev`；6 项精简 GUI 冒烟保持 `Preliminary Pass`）。现启动 R2（`WIN-BUG-002`、`012A`、`013A`、`018A`、`024`）。macOS 保持不动。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -40,10 +40,10 @@
 - W0：Windows 实机已通过目录双击、文本文件双击打开编辑窗口、编辑保存回传与超 4 MiB 文件明确提示。上传失败时保留脏内容因未构造安全失败条件，按用户指示暂不测试；不得记录为通过。
 - 在适当的可控环境补测 W0 的“上传失败保留编辑内容”路径；该项暂缓不等于验收通过。
 - R1–R5：按独立切片推进 Windows 缺陷整治：
-  - **R1-1（`WIN-BUG-029`、`WIN-BUG-001A/B/C`、`WIN-BUG-014A`）**：已合入 `dev`（提交 `34b188b`）；待人工项并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)；
-  - **R1-2（`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`）**：已完成切片编码、`PixShell.csproj` 增量编译（`0` 错误 / `48` 警告）与全量 `PixShell.Tests`（`39/39` 通过），待人工项并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)，待按授权提交推送至 `origin/dev`；
-  - **R1-3（待启动）**：`WIN-BUG-011A/B`、`015B`、`019A`（本地 JSON/DPAPI 事务同步、跨卷目录移动与命令面板目标隔离），完成后执行 R1 阶段级集中验收；
-  - R2 优先独立安全切片为 `SSH.NET` 升级与主机身份/代理路径验证；R3 核心稳定性重点为 `WIN-BUG-025/026/027` 终端无响应。
+  - **R1-1（`WIN-BUG-029`、`WIN-BUG-001A/B/C`、`WIN-BUG-014A`）**：已合入 `dev`（提交 `34b188b`）；待实机项已入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)；
+  - **R1-2（`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`）**：已合入 `dev`（提交 `cfd477d`）；待实机项已入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)；
+  - **R1-3（`WIN-BUG-011A/B`、`015B`、`019A`）**：已完成跨进程本地文件事务锁与损坏备份保护、跨卷目录移动回退、命令板按稳定 `SessionId` 锁定、隔离测试补强及 `46/46` 全量回归，已合入 `dev`；
+  - **R2（进行中：`WIN-BUG-002`、`012A`、`013A`、`018A`、`024`）**：`SSH.NET` 2025.1.0 → `2026.0.1` 安全升级评估、主机指纹验证（`KnownHosts`）、凭据保护、代理与连接生命周期安全修复；当前先完成升级风险与实施顺序评估后切入首个修复切片。
 - OpenWrt/Dropbear 重连问题本轮按外部/服务端或链路共享状态处理并结束客户端修复；未来仅在存在可重复的 PixShell/FinalShell 对照差异时，补齐 Dropbear、conntrack/防火墙和代理路径证据后再重开。
 - W3 已由 D-012 排除；W1、W2、W4 与 W5 的全部已确认实现事项已完成，待按用户约定统一验证。
 - 集中验证时覆盖 W5：`.env`、`config.json`、无扩展名和 Unicode 文件名；同名文件/目录不覆盖；权限失败反馈；三种远端后端不静默成功；创建后能打开、保存并在刷新后可见。
@@ -85,14 +85,17 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
   - `win/installer/package-win.ps1 -SkipInstaller`：生成 `PixShell-0.2.0-win-x64.zip`；
   - 发布版实机启动与人工冒烟：`PixShell.exe --headless` 监听 `127.0.0.1:47866`（无 token `/v1/health` 返回 `401`，带 token `/v1/health` 返回 `200`、`/v1/app/hosts` 返回 11 条主机、`/v1/app/shutdown` 正常退出）；GUI 版启动存活并完成人工实机冒烟（主窗口、WebView2 终端交互、已有 DPAPI 凭据读取、SSH 连接及重连、SFTP 基础文件操作均无迁移回归）；
   - GitHub Actions `build.yml`（`workflow_dispatch` on `dev`、`bbee132`、`platform: windows`，`build #11` / run `45734819385`）：`Windows win-x64` 全部步骤通过（`Setup .NET 10 SDK`、`Restore`、`Test`、`Publish self-contained win-x64`、`Check packaged web assets`、`Zip publish output`、`Install Inno Setup 6`、`Compile Inno Setup installer`、`Upload Windows artifacts`），上传产物 `PixShell-0.2.0-win-x64`。
-- R1-2（`WIN-BUG-003A/B` + `004A/B` + `009A` + `015A`，当前工作区）：
-  - 构建：`Release / net10.0-windows / win-x64`（`D:\20_Projects\pixshell\win\bin\Release\net10.0-windows\win-x64\PixShell.exe`，`--no-restore`）编译成功，`0 个错误`、`48 个警告`（0 新增警告）；
-  - 测试：`PixShell.Tests.csproj`（`net10.0`，Release，`--no-restore`）全量 xUnit `39/39` 通过（`0` 失败、`0` 跳过，`121 ms`，新增 `SftpScpAndTransferTests` 4 项）；实机验收项已并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)。
+- R1-2（`WIN-BUG-003A/B` + `004A/B` + `009A` + `015A`，已提交 `cfd477d`）：`Release / net10.0-windows / win-x64` 构建 `0` 错误 / `48` 警告，xUnit `39/39` 通过。
+- R1-3 与 R1 阶段收尾验收（`WIN-BUG-011A/B` + `015B` + `019A`，已随 R1 收尾拆分提交并推送 `origin/dev`）：
+  - 发布构建：`win/build.ps1 -Action publish -Configuration Release -Runtime win-x64`（`Release / net10.0-windows / win-x64` self-contained）成功，`0` 错误，实际产物 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 09:58:17`；其后仅新增测试与文档，未改动生产源码）；
+  - 全量测试与本地归档集成：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）xUnit **`46/46` 通过**（`0` 失败、`0` 跳过、`0` 警告，含新增 5 项 `LocalTransactionAndTargetTests` 与 2 项真实 OS `tar` `LocalArchiveIntegrationTests`）；
+  - 隔离环境集成脚本（`win/tests/Invoke-IsolatedIntegrationTests.ps1`）：在 WSL2 `Ubuntu` `/tmp/pixshell_itest_*` 验证真实 GNU `tar` 分阶段落盘（冲突跳过、`.env`/`..weird`/含空格文件迁移、`chmod 555` 只读目标非零报错）及 `LC_ALL=C ls -la` 权限/软链接/不可读目录输出通过；因本机未安装 Docker、Windows `sshd` 或 WSL `openssh-server`，实时 SSH/SFTP/SCP 守护进程集成测试明确记为 `Environment-Limited`；
+  - 验收清单与实机状态：[MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) 已拆分为自动化单元测试、自动化集成测试与 6 项精简人工 GUI 冒烟清单；R1 6 项 GUI 冒烟保持 `Preliminary Pass` 状态。
 
 ## Blockers
 
-- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；当前无阻断 R1 本地开发与自动化回归验证的环境阻塞。
+- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；此外本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`（`/usr/sbin/sshd`、`sftp-server`），实时 SSH/SFTP/SCP 守护进程自动化集成测试处于 `Environment-Limited` 状态（不阻断 R2 推进）。
 
 ## Next Action
 
-提交并推送 `R1-2` 至 `origin/dev`，然后实施 `R1-3`（`WIN-BUG-011A/B`、`015B`、`019A`）并在 `R1` 阶段完成后执行完整 Release 构建与最新程序集中验收。
+完成 R2 依赖升级风险与实施顺序输出后，启动 **R2 第一个修复切片（优先独立评估并验证 `SSH.NET` `2025.1.0` → `2026.0.1` 升级，及对应主机验证、凭据、代理与生命周期安全修复；覆盖 `WIN-BUG-002`、`012A`、`013A`、`018A`、`024`）**。

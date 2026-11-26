@@ -1,24 +1,23 @@
 # 开发接力状态
 
-- **Last Updated**: 2026-11-26（完成 `R1-2` 切片 `WIN-BUG-003A/B`、`004A/B`、`009A`、`015A` 编码、增量编译与 39/39 xUnit 验证）
-- **Current Branch**: `dev`（跟踪 `origin/dev`，`HEAD` 为 `71d15ef`）
-- **HEAD / Last Code Commit**: `34b188b` — `fix(win): prevent SFTP directory refresh race and editor write corruption`（后接 `71d15ef` 规范与清单提交，均已推送 `origin/dev`）。
-- **Working Tree**: **DIRTY（R1-2 未提交切片）** — 包含 `R1-2` 修复源码、配套 xUnit 测试及 `CURRENT_PLAN.md`/`HANDOFF.md`/`MANUAL_TEST_CHECKLIST.md` 更新；未改 `mac/`，未改 `SSH.NET` 版本。
-- **Current Phase**: R1 实施中（已完成 `R1-1`、`R1-2`；待提交推送 `R1-2` 后推进最后子切片 `R1-3`：`WIN-BUG-011A/B`、`015B`、`019A`）。
-- **Current Task**: 汇报 `R1-2` 构建与全量回归结果，待用户确认（或依据授权）提交推送至 `origin/dev` 后推进 `R1-3`。
-- **Last Completed**:
-  - `WIN-BUG-003A/B`：`SftpTransfer.ExtractStagedCommand` 捕获并传播每次 `mv` 失败退出码（兼顾 `..?*` 与符号链接）；`UploadItemsPackedAsync`/`PackedDownloadAsync` 文件传输包裹进 `Task.Run` 解除 WPF UI 阻塞。
-  - `WIN-BUG-004A/B`：新增 `ScpLsParser` 支持 8 列 ISO / 9 列传统格式、空格文件名与符号链接并提取完整 12 位权限；`ScpBackend.ListDirectory`/`Exists`/`MakeDirectory`/`Delete`/`Rename` 强制检查 `__PIXSHELL_RC:$?` 并在失败时抛异常，封堵 `D-015` 误判空目录绕过。
-  - `WIN-BUG-009A`：`UploadSingleDirectAsync` 复用 `RemoteFileOverwrite.ReplaceUploadedTemp` 实现直传安全覆盖替换与失败回滚。
-  - `WIN-BUG-015A`：`SftpAdapter.ListDirectory`、`ProcSftpClient`、`ScpLsParser` 与 `FsRow.HasPerms` 全面传递真实 12 位 POSIX 权限（区分 `0000` 与未知）；`ChmodWindow` 保留 `setuid`/`setgid`/`sticky` 特殊位并校验 `chmod` 退出码。
-- **Uncommitted Work**: `win/Sftp/SftpTransfer.cs`、`win/Sftp/ScpLsParser.cs`、`win/Sftp/ScpBackend.cs`、`win/Sftp/RemoteFileOverwrite.cs`、`win/Sftp/RemoteFs/SftpAdapter.cs`、`win/Sftp/ProcSftpClient.cs`、`win/SftpPanel.xaml.cs`、`win/UI/ChmodWindow.cs`、`win/tests/PixShell.Tests.csproj`、`win/tests/SftpScpAndTransferTests.cs` 及文档更新。
-- **Validation Performed**:
-  - 构建：`Release / net10.0-windows / win-x64`（`D:\20_Projects\pixshell\win\bin\Release\net10.0-windows\win-x64\PixShell.exe`，`--no-restore`）`0` 错误 / `48` 警告（0 新增）。
-  - 测试：`PixShell.Tests.csproj`（`net10.0`）`39/39` 通过（0 失败 / 0 跳过 / `121 ms`）。
-- **Validation Pending**:
-  - R1 阶段集中实机验收项（统一维护于 `docs/MANUAL_TEST_CHECKLIST.md`，待 `R1-3` 完成后由 AI 构建最新程序集中验收）；
-  - `R1-3`（`WIN-BUG-011A/B`、`015B`、`019A`）与 R2–R5。
+- **Last Updated**: 2026-11-26（R1 阶段收尾拆分提交并推送 `origin/dev`，完成 `SSH.NET` 2025.1.0 安全公告初审并启动 R2）
+- **Current Branch**: `dev`（跟踪 `origin/dev`，含 `R1-3` 业务修复、隔离测试补强及规范/文档提交）
+- **Working Tree**: **CLEAN**（R1 业务修复、测试基础设施与规范文档已分别独立提交并推送 `origin/dev`；未改 `mac/`，未改动用户配置）
+- **Current Phase**: **R1 已完成收尾**，正式进入 **R2（`WIN-BUG-002`、`012A`、`013A`、`018A`、`024`）**。
+- **Current Task**: 评估并启动 R2 首个修复切片（先独立审查 `SSH.NET` 2025.1.0 安全公告及 `2026.0.1` 升级兼容性，再按切片依次补齐主机指纹验证、凭据保护、代理及连接生命周期安全）。
+- **Last Completed（R1 收尾）**:
+  - `R1-3` 业务修复（`WIN-BUG-011A/B`、`015B`、`019A`）：`LocalFileTransaction` 跨进程文件锁/原子替换/损坏备份与阻断、跨卷目录移动回退、命令板稳定 `SessionId` 锁定；
+  - 测试与隔离集成基础设施：新增 `LocalTransactionAndTargetTests`（5 项）、`LocalArchiveIntegrationTests`（2 项真实 OS `tar` 归档集成）与 [Invoke-IsolatedIntegrationTests.ps1](file:///d:/20_Projects/pixshell/win/tests/Invoke-IsolatedIntegrationTests.ps1)；
+  - 规范与清单：更新 [AGENTS.md](file:///d:/20_Projects/pixshell/AGENTS.md)、[CURRENT_PLAN.md](file:///d:/20_Projects/pixshell/docs/CURRENT_PLAN.md)、[MANUAL_TEST_CHECKLIST.md](file:///d:/20_Projects/pixshell/docs/MANUAL_TEST_CHECKLIST.md)（R1 6 项精简 GUI 冒烟保持 `Preliminary Pass`）。
+- **Validation Performed（R1 最终状态）**:
+  - 构建：`Release / net10.0-windows / win-x64`（self-contained），`win\publish\win-x64\PixShell.exe`（`2026/11/26 09:58:17`，`0` 错误）；
+  - 自动化单元测试与本地归档集成：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）`46/46` 通过（`0` 失败 / `0` 跳过 / `466 ms` / `0` 警告）；
+  - 隔离 WSL2 `Ubuntu` 集成检查：`Invoke-IsolatedIntegrationTests.ps1` 通过；
+  - R1 六项精简 GUI 冒烟（`R1-S1`～`R1-S6`）：保留 `Preliminary Pass` 状态。
+- **Validation Pending / Environment-Limited**:
+  - `Environment-Limited`：实时 SSH/SFTP/SCP 守护进程回环集成测试（本机及 WSL `Ubuntu` 未安装 Docker / Windows `sshd` / WSL `openssh-server`）；
+  - `Pending`：R2–R5。
 - **Known Issues / Blockers**:
-  - 当前无阻塞。
-- **Exact Next Action**: 提交并推送 `R1-2` 至 `origin/dev`，然后立即实施 `R1-3`（`WIN-BUG-011A/B`、`015B`、`019A`）。
-- **Cross-machine Ready**: **NO** — `R1-2` 改动尚在本地未提交工作区，提交推送至 `origin/dev` 后即可跨机接力。
+  - `PixShell.csproj` 当前使用 `SSH.NET 2025.1.0`，NuGet 报 2 条 High 级安全公告 `NU1903`（`GHSA-mggc-4xg6-vcxf` 与 `GHSA-q939-rpr3-3284`），待 R2 首切片评估升级至 `2026.0.1`。
+- **Exact Next Action**: 按 R2 实施顺序先独立开展 `SSH.NET 2025.1.0 → 2026.0.1` 依赖升级兼容审查与回归测试基线搭建，再依次推进 `WIN-BUG-002`、`012A`、`013A`、`018A`、`024`。
+- **Cross-machine Ready**: **YES** — R1 全部修复、测试与文档已完成拆分提交并推送 `origin/dev`。

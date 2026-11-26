@@ -1,22 +1,61 @@
-# Windows 阶段级人工实机验收清单
+# Windows 阶段级验收与测试职责清单
 
-本清单汇总 R1–R5 各阶段尚需人工在最新实机程序上集中确认的交互测试项，已按阶段合并去重；各独立切片完成后原则上不单独触发人工验收，待阶段收尾时由 AI 构建最新 `Release` 产物、确认可执行文件路径并主动启动供集中验收。
+本清单按“**自动化单元测试 / 自动化集成测试 / 精简人工 GUI 冒烟测试**”分层整理各阶段验收覆盖项，完整保留缺陷追溯关系与数据安全标准：
 
-## 阶段构建与验收产物记录
+- **状态约束**：严格区分 `Passed`、`Not Run`、`Failed` 与 `Environment-Limited`；**绝不将受环境限制未执行的集成测试记为通过，也不为精简人工测试而删减原有缺陷覆盖要求**。
+- **数据隔离铁律**：所有自动化测试均运行在临时隔离目录（`%TEMP%\pixshell-itest-*` / WSL `/tmp/pixshell_itest_*`），绝不触碰用户真实 `%APPDATA%\PixShell` 或真实生产主机。
 
-- **当前阶段**：R1 进行中（已完成 `R1-1` 与 `R1-2`；待 `R1` 全部切片完成后执行完整 Release 构建与最新程序集中验收）
-- **最近增量构建（R1-2）**：`Release / net10.0-windows / win-x64`，可执行文件 `D:\20_Projects\pixshell\win\bin\Release\net10.0-windows\win-x64\PixShell.exe`（`0` 错误 / `48` 警告），xUnit `39/39` 通过。
-- **重要提醒**：严禁使用尚未更新的旧 `win/publish/win-x64/PixShell.exe` 进行 R1 阶段验收；集中验收前必须先刷新目标输出并启动最新构建。
+## 阶段构建与环境产物记录（R1）
+
+- **当前阶段**：**R1 阶段（`R1-1`、`R1-2`、`R1-3`）编码、单元测试、隔离本地/WSL 集成验证与最新 Release 发布已完成**
+- **最新构建产物**：`Release / net10.0-windows / win-x64`（self-contained），完整路径 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（构建时间 `2026/11/26 09:58:17`，`0` 错误；其后仅新增测试与文档，未改动生产源码）
+- **自动化回归入口**：
+  - 单元测试 + 本地归档集成：`win/build.ps1 -Action test -Configuration Release`（`46/46` 通过，`0` 失败，`0` 跳过，`0` 编译警告）
+  - 隔离环境集成脚本：[Invoke-IsolatedIntegrationTests.ps1](file:///d:/20_Projects/pixshell/win/tests/Invoke-IsolatedIntegrationTests.ps1)（含环境探测、`PixShell.Tests` 全量及 WSL2 Ubuntu GNU `tar` / POSIX `chmod` / `ls -la` 隔离检查）
+- **本机隔离 SSH/SFTP/SCP 服务端评估结论**：本机未安装 Docker CLI、Windows OpenSSH Server（`sshd.exe` + `sftp-server.exe`）或 WSL `Ubuntu` `openssh-server`（`/usr/sbin/sshd` + `/usr/lib/openssh/sftp-server`）；WSL `Ubuntu` 具备 `/usr/bin/tar`、`/usr/bin/ssh-keygen`、`/usr/bin/python3`。按协议不擅自安装系统级服务端软件，真实协议守护进程集成测试明确标记为 `Environment-Limited`。
 
 ---
 
-## R1 阶段待验收清单（数据防损、误删误覆与防错发）
+## 一、R1 自动化单元测试项（xUnit `net10.0`，无外部依赖）
 
-| 验收编号 | 关联缺陷编号 | 测试前置条件 | 具体操作步骤 | 预期结果 | 验收状态 |
+覆盖原 `R1-M1`～`R1-M8` 中全部纯逻辑、编码往返、权限计算、状态机、本地并发锁与异常回滚边界：
+
+| 追溯编号 | 关联缺陷 | 覆盖内容与验证边界 | 对应测试方法（`win/tests/`） | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **R1-M1** | `WIN-BUG-029` | 目录刷新乱序返回丢弃、切签/断开使在途快照与操作句柄立即失效 | `SftpEditorAndRefreshTests.OutOfOrderDirectoryRefreshResultIsRejected`<br>`SftpEditorAndRefreshTests.SessionSwitchInvalidatesInFlightRefreshAndOperationSnapshots` | `Passed` |
+| **R1-M2** | `WIN-BUG-001A`, `WIN-BUG-001C`, `WIN-BUG-014A` | 文本缩减保存无旧尾字节残留；非原子后端不放宽限制权限；传中中断/大小校验不匹配回滚原文件；双失败暴露 `.bak` 路径；`UTF-8/UTF-16/UTF-32 BOM`、`GB18030`、`Latin1`、`\r\n`/混合换行精确往返；损坏 BOM 与 `\0` 二进制拦截 | `SftpEditorAndRefreshTests.ShorterSaveOverwritesCleanlyAndPreservesPosixPermissions`<br>`SftpEditorAndRefreshTests.AtomicOverwriteBackendUsesSingleStepRenameWithoutBackupWindow`<br>`SftpEditorAndRefreshTests.RestrictedModeRestoreFailureAbortsWithoutWideningPermissionsOrReplacingTarget`<br>`SftpEditorAndRefreshTests.MidUploadFailureAndCancellationLeaveOriginalFileIntactAndCleanTemp`<br>`SftpEditorAndRefreshTests.SizeVerificationMismatchAbortsBeforeTouchingOriginalFile`<br>`SftpEditorAndRefreshTests.SwapRenameFailureRollsBackAndDoubleFailureSurfacesBackupPath`<br>`SftpEditorAndRefreshTests.CreatingNewFileViaAtomicSaveWritesExactBytes`<br>`SftpEditorAndRefreshTests.EncodingRoundTripPreservesUtf8Utf16AndUtf32BomsAndRejectsCorruptBom`<br>`SftpEditorAndRefreshTests.EncodingPreservesGb18030AndLatin1WithoutReplacementCorruption`<br>`SftpEditorAndRefreshTests.EncodingPreservesPureCrlfAndMixedNewlinesAndRejectsBinaryNulFiles` | `Passed` |
+| **R1-M3** | `WIN-BUG-001B` | 切至其他会话标签时阻止保存写错主机并保留脏标记，切回原已连接会话可保存成功 | `SftpEditorAndRefreshTests.SaveTargetGuardBlocksInactiveTabButAllowsSaveAfterReturningToOriginalSession` | `Passed` |
+| **R1-M4** | `WIN-BUG-003B` | `ExtractStagedCommand` 校验每次 `mv` 退出码、覆盖 `..*` 与点文件且不误判假绿 | `SftpScpAndTransferTests.ExtractStagedCommandChecksMvExitCodeAndHandlesDoubleDotFiles` | `Passed` |
+| **R1-M5** | `WIN-BUG-004A`, `WIN-BUG-004B` | ISO/BusyBox/传统 `ls -l` 带空格文件名与软链接解析；错误信息不误判为空目录（防误触发 `D-015`） | `SftpScpAndTransferTests.ScpLsParserParsesIsoBusyBoxAndTraditionalListingsWithSpacesAndSymlinks`<br>`SftpScpAndTransferTests.ScpLsParserDoesNotMisinterpretErrorOutputAsEntries` | `Passed` |
+| **R1-M6** | `WIN-BUG-009A` | 非原子 SFTP 直传覆盖回滚与保留目标文件（权限逻辑另见 `RemoteFileOverwrite` 单元测试及 `ChmodWindow` 源码审查） | `SftpScpAndTransferTests.DirectUploadOverwriteSucceedsAcrossNonAtomicSftpAndRollsBackOnFailure` | `Passed` |
+| **R1-M7** | `WIN-BUG-011A`, `WIN-BUG-011B` | 合法空数组 `[]` 持久化不被默认值填回；损坏 JSON 生成 `.corrupt.*` 备份并阻止单条写入覆写；多任务并发 `MutateJsonStrict` 命名互斥锁零丢更新 | `LocalTransactionAndTargetTests.QuickCommandStorePreservesIntentionalEmptyArrayAndBacksUpCorruptFile`<br>`LocalTransactionAndTargetTests.MutateJsonStrictRefusesToOverwriteCorruptStoreAndCreatesBackup`<br>`LocalTransactionAndTargetTests.MutateJsonStrictPreservesAllConcurrentReadModifyWriteUpdates` | `Passed` |
+| **R1-M8** | `WIN-BUG-015B`, `WIN-BUG-019A` | 跨卷回退递归复制目录与清理源路径；`CommandTargetResolver` 按稳定 `SessionId` 锁定目标、防前序关闭漂移并拦截已断开目标 | `LocalTransactionAndTargetTests.MoveEntryWithCrossVolumeFallbackCopiesNestedDirectoriesAndRemovesSource`<br>`LocalTransactionAndTargetTests.CommandTargetResolverTracksStableSessionIdAndBlocksDisconnectedTarget` | `Passed` |
+
+---
+
+## 二、R1 自动化集成测试与环境受限项（隔离环境）
+
+| 追溯编号 | 关联缺陷 | 隔离环境与验证内容 | 执行方式 / 依赖 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **R1-M4 / R1-M8** | `WIN-BUG-003A`, `WIN-BUG-015B` | 调用真实 Windows `tar.exe` 验证 `SftpTransfer.PackLocalAsync` / `ExtractLocalAsync` 对嵌套含空格目录、`.env` 点文件、缺少源文件报错传播，及 `MoveEntryWithCrossVolumeFallback` 跨卷落盘与清理 | `LocalArchiveIntegrationTests`（已并入 `win/tests/PixShell.Tests.csproj`，隔离 `%TEMP%` 目录自动清理，2/2 通过） | `Passed` |
+| **R1-M4 / R1-M5** | `WIN-BUG-003B`, `WIN-BUG-004A`, `WIN-BUG-004B` | 在 WSL2 `Ubuntu` 隔离 `/tmp/pixshell_itest_*`（非 root 用户 `mio`，退出自动 `rm -rf`）实测真实 GNU `tar` 分阶段解压：冲突跳过 `SKIP:existing.txt`、`.env`/`..weird`/含空格文件名迁移、`chmod 555` 只读目录 `mv` 返回非零 `rc=1` 与 `MV_ERR:`、真实 `LC_ALL=C ls -la` 含 `0600`/含空格软链接与 `chmod 000` 不可读目录报错 | [Invoke-IsolatedIntegrationTests.ps1](file:///d:/20_Projects/pixshell/win/tests/Invoke-IsolatedIntegrationTests.ps1)（第 3 节实时通过） | `Passed` |
+| **R1-M2 / R1-M4 / R1-M5 / R1-M6** | `WIN-BUG-001A/C`, `003A/B`, `004A/B`, `009A`, `015A` | `SSH.NET` SFTP v3/v4+、Proc SFTP、SCP 回退端到端真实回环连接（直传覆盖、真实 `chmod`/`stat` 特殊位 `4755`/`2755`/`0600`、打包上传/取消及 Dropbear/OpenWrt SCP 解析） | 需要 Docker、Windows OpenSSH Server 或 WSL `openssh-server`（`/usr/sbin/sshd` + `/usr/lib/openssh/sftp-server`） | `Environment-Limited`（本机均未安装，未执行，**未标记通过**；保留在清单待环境就绪或人工烟测补齐） |
+| **R1-M7** | `WIN-BUG-011B` | 双 Windows 进程同时写入真实 DPAPI `CredentialStore` 与 `%APPDATA%` JSON 配置的独立端到端测试进程 | 跨平台 `PixShell.Tests`（`net10.0`）未引用 Windows DPAPI；事务锁与损坏阻断已在 `LocalTransactionAndTargetTests` 覆盖，DPAPI 读写已在 R0.4 与 R1 GUI 冒烟覆盖 | `Not Run`（自动化独立双进程 DPAPI 未单列；单机并发逻辑已测） |
+
+> [!NOTE]
+> 如后续希望在本机启用“SSH/SFTP/SCP 自动化回环集成测试”，可在 WSL `Ubuntu` 中手动执行 `sudo apt update && sudo apt install -y openssh-server`（提供 `/usr/sbin/sshd` 与 `/usr/lib/openssh/sftp-server`，无需全局启用开机服务，测试脚本可按隔离临时配置与随机高端口启停用户级 `sshd`）。
+
+---
+
+## 三、R1 精简人工 GUI 冒烟清单（仅交互与基础体验，6 项）
+
+不再要求手工构造特殊编码、`0600`/`4755` 权限、损坏 JSON 或只读目录故障；仅验证日常真实连接下的 GUI 交互、取消响应与目标防错：
+
+| 冒烟编号 | 追溯覆盖 | 测试前置条件 | 精简操作步骤 | 预期结果 | 验收状态 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **R1-M1** | `WIN-BUG-029` | 已连接一台含多个深层子目录（其中一个目录文件数较多）的 SSH/SFTP 主机；可选第二台已连接主机用于切签测试。 | 1. 在文件树/列表中快速连续双击进入目录 A，不等列表完全刷出立即切换进入目录 B；<br>2. 列表刚发起刷新时切换终端标签到另一台主机（或断开当前会话）。 | 1. 进入目录 B 时旧目录 A 条目立即清空，目录 A 慢结果返回后不会覆盖目录 B 视图；<br>2. 切签或断开后界面清空，旧目录刷新与树节点展开结果不会回填或误触发删除/重命名。 | `Pending` |
-| **R1-M2** | `WIN-BUG-001A`, `WIN-BUG-001C`, `WIN-BUG-014A` | 在远端 OpenSSH/SFTP 测试目录预先准备 4 个小文件：<br>- `shrink.txt`（100+ 字节 UTF-8）<br>- `exec.sh`（权限 `0755`）<br>- `secret.env`（权限 `0600`）<br>- `legacy_gb.txt`（`GB18030` 中文 + `\r\n` 或 `UTF-8 BOM`） | 1. 分别双击打开编辑上述文件并保存（其中 `shrink.txt` 删减为不到 20 字节）；<br>2. 在服务端终端执行 `ls -l`、`cat` 及 `file`/`xxd` 检查内容、权限与编码字节；<br>3. 双击一个 >4 MiB 文件或含 `\0` 的二进制文件测试拦截。 | 1. `shrink.txt` 保存后精确截断无尾部旧字节残留；<br>2. `exec.sh` 保持 `0755`，`secret.env` 保持 `0600` 未放宽至 `0644`；<br>3. `GB18030`/`UTF-8 BOM`/`\r\n` 文件保存后中文与编码无 `U+FFFD` 损坏；<br>4. 大文件与二进制文件被明确拒绝并提示改用下载。 | `Pending` |
-| **R1-M3** | `WIN-BUG-001B` | 已打开两个连接不同主机的会话标签（Tab A 与 Tab B），且双方均存在同名路径测试文件。 | 1. 在 Tab A 的 SFTP 中双击打开测试文件，修改内容暂不保存；<br>2. 切换到 Tab B 并确认 Tab B SFTP 已连接；<br>3. 在已打开的 Tab A 编辑器点击“保存”；<br>4. 切换回 Tab A，待状态恢复连接后再点击“保存”。 | 1. 停留在 Tab B 时保存被明确拦截并提示切回原标签，编辑器保留脏标记与内容，Tab B 文件未被改写；<br>2. 切回 Tab A 且 SFTP 重连就绪后，原编辑器可成功保存写回 Tab A 并清脏标记。 | `Pending` |
-| **R1-M4** | `WIN-BUG-003A`, `WIN-BUG-003B` | 已开启“打包传输”，准备包含多文件或 ≥8 MiB 文件；需测试一个无写权限/只读远端目标目录。 | 1. 向正常远端目录发起大文件/多文件打包上传，及打包下载远端大目录；期间点击任务列表取消按钮；<br>2. 向只读远端目录发起打包上传。 | 1. 打包传输期间 WPF 主界面（窗口拖动、切换标签、点击取消）保持流畅不卡死；<br>2. 向只读目录 `mv` 失败时明确报失败状态，不再假绿提示“已上传并解压”。 | `Pending` |
-| **R1-M5** | `WIN-BUG-004A`, `WIN-BUG-004B` | 连接一台强制走 SCP 回退后端的主机（如无 `sftp-server` 的 OpenWrt/Dropbear），目录含带空格文件名、软链接及有子文件的非空目录和无权限目录。 | 1. 刷新目录查看带空格文件与软链接显示，双击或下载带空格文件；<br>2. 对非空目录触发删除；对无读权限目录触发删除；<br>3. 对只读目录尝试新建目录或重命名。 | 1. 带空格文件名与软链接名完整显示，不被截断或错解析为链接目标；<br>2. 非空目录弹出 `D-015` 递归确认，无权限目录明确报 `ls` 失败并阻止删除；<br>3. 只读目录新建/重命名明确报远端错误，不静默假成功。 | `Pending` |
-| **R1-M6** | `WIN-BUG-009A`, `WIN-BUG-015A` | 在 OpenSSH/SFTP 服务端准备已存在文件（如 `0600` `.env`、`0755` `run.sh`、带特殊位 `4755` 或 `2755` 测试文件）及同目录待上传覆盖的本地文件。 | 1. 关闭打包传输后直传上传同名文件，弹窗选择“是 = 覆盖”；<br>2. 右键查看 `0600`、`.env`、`0755`、`2755` 文件的「文件权限…」，微调或直接确认后在终端用 `ls -l` 核对。 | 1. 直传覆盖在 SFTP v3 下可正常替换远端文件且保持原 `0600`/`0755` 权限，失败时不删原文件；<br>2. 「文件权限…」准确回显 `0600`/`0755` 真实权限而非假 `0644`/`0755`，修改时保留高位特殊位，失败显式反馈。 | `Pending` |
+| **R1-S1** | 原 `R1-M1`（`WIN-BUG-029`） | 已连接两台常用 SSH 主机（Tab A、Tab B），远端有含子目录的目录。 | 1. 在文件列表快速双击切换目录；<br>2. 浏览/刷新期间切换终端标签到另一台主机。 | 1. 列表与路径栏切换跟手，不串入上一目录或另一主机内容；<br>2. 切换标签后 SFTP 面板同步切换至当前主机。 | `Preliminary Pass`（11/26 实机测试反馈“基本通过”，待确认） |
+| **R1-S2** | 原 `R1-M2`（`WIN-BUG-001A/C`, `014A`） | 已连接测试主机，存在普通远端小文本文件；可选一个 >4 MiB 文件。 | 1. 双击打开普通文本文件，删减部分内容后点击保存，关闭重开查看；<br>2. 尝试双击打开 >4 MiB 大文件（可选）。 | 1. 保存成功且无旧尾部字节残留；<br>2. 超大文件被明确拦截并提示改用下载，界面不卡死。 | `Preliminary Pass`（用户 10:08–10:15 实机测试含编辑器打开 UTF-8 与关闭流程，待确认） |
+| **R1-S3** | 原 `R1-M3`（`WIN-BUG-001B`） | 已打开 Tab A 与 Tab B 两个连接会话，在 Tab A 打开一个远端文本编辑器并修改未保存。 | 1. 保持编辑器打开，切到 Tab B 后在原编辑器点击“保存”；<br>2. 切回 Tab A 再次点击“保存”。 | 1. 在 Tab B 时保存被明确拦截提示且不写入 Tab B，内容与脏标记保留；<br>2. 切回 Tab A 后成功保存至原文件。 | `Preliminary Pass`（待确认是否已覆盖或需补点） |
+| **R1-S4** | 原 `R1-M4`, `R1-M6`, `R1-M8`（`WIN-BUG-003A/B`, `009A`, `015B`） | 正常已连接主机，本地任意测试文件/小目录（若测试跨盘下载可将左侧本地路径切至非 `%TEMP%` 盘如 `D:\`）。 | 1. 上传与下载文件/目录，并在传输过程中测试一次“取消”；<br>2. 确认覆盖一次已有同名远端文件。 | 1. 传输及打包过程中窗口拖动、切换标签与点击取消均流畅响应；<br>2. 跨盘下载落盘成功，同名覆盖与状态提示正确。 | `Preliminary Pass`（待确认） |
+| **R1-S5** | 原 `R1-M5`, `R1-M6`（`WIN-BUG-004A/B`, `015A`） | 正常已连接主机上的测试目录。 | 1. 在远端测试目录新建一个临时文件/目录并重命名；<br>2. 右键查看「文件权限…」并确认无异常；<br>3. 删除该临时测试文件/目录。 | 1. 新建、重命名、权限回显与删除流程正常，列表及时刷新；<br>2. 非空目录删除弹出 `D-015` 二次确认。 | `Preliminary Pass`（待确认） |
+| **R1-S6** | 原 `R1-M8`, `R1-M7`（`WIN-BUG-019A`, `011A`） | 打开 3 个会话标签（A / B / C）并打开底部/侧边命令面板。 | 1. 在命令下拉选中 Server B，然后关闭 Server A 后发送一条安全只读命令（如 `pwd`）；<br>2. 断开 Server B 再查看下拉与发送拦截提示；<br>3. 快捷命令常规增删/清空后重启确认是否保留。 | 1. 关闭 Server A 后命令仍准确发往 Server B（不漂移到 C）；<br>2. Server B 断开后显示“（已断开）”并拦截误发送；<br>3. 快捷命令变更重启后保持符合预期。 | `Preliminary Pass`（待确认） |
