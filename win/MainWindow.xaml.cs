@@ -381,29 +381,44 @@ public partial class MainWindow : Window
     {
         var dlg = new HostEditWindow(null) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        _hosts.Add(dlg.Entry);
-        if (dlg.Password != null) CredentialStore.SetPassword(dlg.Entry.Id, dlg.Password);
-        PersistHosts();
-        RefreshHostViews();
+        try
+        {
+            if (dlg.Password != null) CredentialStore.SetPassword(dlg.Entry.Id, dlg.Password);
+            _hosts.Add(dlg.Entry);
+            PersistHosts();
+            RefreshHostViews();
+        }
+        catch (Exception ex)
+        {
+            SetStatus("保存凭据失败: " + ex.Message);
+        }
     }
 
     private void EditHostFlow(HostEntry host)
     {
         var dlg = new HostEditWindow(host) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        host.Name = dlg.Entry.Name; host.Host = dlg.Entry.Host; host.Port = dlg.Entry.Port;
-        host.Username = dlg.Entry.Username; host.Group = dlg.Entry.Group; host.OsId = dlg.Entry.OsId;
-        host.KeyPath = dlg.Entry.KeyPath; host.ProxyId = dlg.Entry.ProxyId;
-        if (dlg.Password != null) CredentialStore.SetPassword(host.Id, dlg.Password);
-        PersistHosts();
-        RefreshHostViews();
+        try
+        {
+            if (dlg.Password != null) CredentialStore.SetPassword(host.Id, dlg.Password);
+            host.Name = dlg.Entry.Name; host.Host = dlg.Entry.Host; host.Port = dlg.Entry.Port;
+            host.Username = dlg.Entry.Username; host.Group = dlg.Entry.Group; host.OsId = dlg.Entry.OsId;
+            host.KeyPath = dlg.Entry.KeyPath; host.ProxyId = dlg.Entry.ProxyId;
+            PersistHosts();
+            RefreshHostViews();
+        }
+        catch (Exception ex)
+        {
+            SetStatus("保存凭据失败: " + ex.Message);
+        }
     }
 
     private void DeleteHostFlow(HostEntry host)
     {
         if (MessageBox.Show(this, $"删除主机「{host}」？", "PixShell", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
             return;
-        CredentialStore.Remove(host.Id);
+        try { CredentialStore.Remove(host.Id); }
+        catch (Exception ex) { SetStatus("清理凭据提示: " + ex.Message); }
         _hosts.Remove(host);
         PersistHosts();
         RefreshHostViews();
@@ -1060,34 +1075,53 @@ public partial class MainWindow : Window
         return list;
     }
 
-    /// <summary>命令板目标下拉数据源：全部会话标题 + 是否已连接。</summary>
-    private List<(string title, bool connected)> BuildSessionConnStates()
+    /// <summary>命令板目标下拉数据源：稳定会话 ID、标题与连接状态。</summary>
+    private List<Store.SessionTargetItem> BuildSessionConnStates()
     {
-        var list = new List<(string, bool)>();
+        var list = new List<Store.SessionTargetItem>();
         foreach (var obj in Sessions.Items)
             if (obj is TabItem { Tag: TerminalSession s })
-                list.Add((s.TabTitle, s.Connected));
+                list.Add(new Store.SessionTargetItem(s.SessionId, s.TabTitle, s.Connected));
         return list;
     }
 
-    /// <summary>命令板发送：解析 当前会话/所有已连接会话/指定会话下标 三种目标（对齐 mac cmdPanel.onSendTo）。</summary>
+    /// <summary>命令板发送：按稳定 SessionId 解析 当前/所有已连接/指定会话，目标已断开则显式拦截。</summary>
     private void SendToCommandTarget(string text, Store.SendTarget target)
     {
-        var bytes = text; // TerminalSession.SendText 内部按 UTF-8 编码发送
-        switch (target.Kind)
+        if (target.Kind == Store.SendTargetKind.Unavailable)
         {
-            case Store.SendTargetKind.Current:
-                if (ActiveSession is { Connected: true } cur) cur.SendText(bytes);
-                break;
-            case Store.SendTargetKind.AllConnected:
-                foreach (var obj in Sessions.Items)
-                    if (obj is TabItem { Tag: TerminalSession s } && s.Connected) s.SendText(bytes);
-                break;
-            case Store.SendTargetKind.Session:
-                if (target.SessionIndex >= 0 && target.SessionIndex < Sessions.Items.Count &&
-                    Sessions.Items[target.SessionIndex] is TabItem { Tag: TerminalSession si } && si.Connected)
-                    si.SendText(bytes);
-                break;
+            SetStatus($"原目标会话（{target.DisplayTitle ?? "已断开"}）不可用，已取消发送");
+            System.Media.SystemSounds.Beep.Play();
+            return;
+        }
+
+        var sessions = new List<TerminalSession>();
+        var descriptors = new List<Store.SessionTargetItem>();
+        foreach (var obj in Sessions.Items)
+        {
+            if (obj is TabItem { Tag: TerminalSession s })
+            {
+                sessions.Add(s);
+                descriptors.Add(new Store.SessionTargetItem(s.SessionId, s.TabTitle, s.Connected));
+            }
+        }
+
+        var targetIds = Store.CommandTargetResolver.ResolveTargetSessionIds(
+            target,
+            descriptors,
+            ActiveSession?.SessionId);
+        if (targetIds.Count == 0 && target.Kind == Store.SendTargetKind.Session)
+        {
+            SetStatus($"指定目标会话（{target.DisplayTitle ?? target.SessionId}）已断开或关闭，已取消发送");
+            System.Media.SystemSounds.Beep.Play();
+            return;
+        }
+
+        foreach (var id in targetIds)
+        {
+            var session = sessions.FirstOrDefault(s => s.SessionId == id);
+            if (session is { Connected: true })
+                session.SendText(text);
         }
     }
 

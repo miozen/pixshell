@@ -1189,7 +1189,7 @@ public partial class SftpPanel : UserControl
                 if (choice == MessageBoxResult.No) continue;
                 if (Directory.Exists(target)) Directory.Delete(target, recursive: true); else File.Delete(target);
             }
-            if (Directory.Exists(source)) Directory.Move(source, target); else File.Move(source, target);
+            SftpTransfer.MoveEntryWithCrossVolumeFallback(source, target);
         }
         return true;
     }

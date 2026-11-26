@@ -70,46 +70,65 @@ public static class WebDavBackup
 
     public static Config? Load()
     {
-        try
+        return LocalFileTransaction.WithFileLock(FilePath, () =>
         {
-            if (!File.Exists(FilePath)) return null;
-            var config = JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath), new JsonSerializerOptions
+            try
             {
-                PropertyNameCaseInsensitive = true,
-            });
-            if (config == null) return null;
-            if (!string.IsNullOrEmpty(config.Password))
-            {
-                var legacyPassword = config.Password;
-                CredentialStore.SetPassword(CredentialId, legacyPassword);
-                if (CredentialStore.GetPassword(CredentialId) == legacyPassword)
-                    Save(config);
-                else
-                    return config;
+                if (!File.Exists(FilePath)) return null;
+                var config = JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath), new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                });
+                if (config == null)
+                {
+                    LocalFileTransaction.BackupCorruptFile(FilePath, "反序列化结果为 null", "backup");
+                    return null;
+                }
+                if (!string.IsNullOrEmpty(config.Password))
+                {
+                    var legacyPassword = config.Password;
+                    CredentialStore.SetPassword(CredentialId, legacyPassword);
+                    if (CredentialStore.GetPassword(CredentialId) == legacyPassword)
+                        SaveUnsafe(config);
+                    else
+                        return config;
+                }
+                config.Password = CredentialStore.GetPassword(CredentialId) ?? "";
+                return config;
             }
-            config.Password = CredentialStore.GetPassword(CredentialId) ?? "";
-            return config;
-        }
-        catch { return null; }
+            catch (Exception ex)
+            {
+                LocalFileTransaction.BackupCorruptFile(FilePath, ex.Message, "backup");
+                return null;
+            }
+        });
     }
 
     public static void Save(Config c)
     {
         try
         {
-            CredentialStore.SetPassword(CredentialId, c.Password);
-            var stored = CredentialStore.GetPassword(CredentialId);
-            if ((!string.IsNullOrEmpty(c.Password) && stored != c.Password)
-                || (string.IsNullOrEmpty(c.Password) && stored != null))
-                throw new InvalidOperationException("WebDAV 凭据写入后校验失败");
-            var safe = new Config { Url = c.Url, Username = c.Username, Password = "" };
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(safe, new JsonSerializerOptions
+            LocalFileTransaction.WithFileLock(FilePath, () =>
             {
-                WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            }));
+                CredentialStore.SetPassword(CredentialId, c.Password);
+                var stored = CredentialStore.GetPassword(CredentialId);
+                if ((!string.IsNullOrEmpty(c.Password) && stored != c.Password)
+                    || (string.IsNullOrEmpty(c.Password) && stored != null))
+                    throw new InvalidOperationException("WebDAV 凭据写入后校验失败");
+                SaveUnsafe(c);
+            });
         }
         catch (Exception ex) { Log.Warn($"WebDAV 配置保存失败: {ex.Message}", "backup"); }
+    }
+
+    private static void SaveUnsafe(Config c)
+    {
+        var safe = new Config { Url = c.Url, Username = c.Username, Password = "" };
+        LocalFileTransaction.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(safe, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        }));
     }
 
     private static HttpRequestMessage? BuildRequest(Config c, HttpMethod method, string? body)

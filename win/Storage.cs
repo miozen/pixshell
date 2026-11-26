@@ -168,34 +168,29 @@ public static class HostStore
 
     private static string HostsPath => Path.Combine(AppDir, "hosts.json");
 
-    public static List<HostEntry> Load()
-    {
-        try
-        {
-            if (!File.Exists(HostsPath)) return new List<HostEntry>();
-            var json = File.ReadAllText(HostsPath, Encoding.UTF8);
-            return JsonSerializer.Deserialize<List<HostEntry>>(json, JsonOpts)
-                   ?? new List<HostEntry>();
-        }
-        catch
-        {
-            return new List<HostEntry>();
-        }
-    }
+    public static List<HostEntry> Load() =>
+        Store.LocalFileTransaction.ReadJsonOrBackup(HostsPath, () => new List<HostEntry>(), JsonOpts, "store");
 
     public static void Save(List<HostEntry> hosts)
     {
         var json = JsonSerializer.Serialize(hosts, JsonOpts);
-        File.WriteAllText(HostsPath, json, Encoding.UTF8);
+        Store.LocalFileTransaction.WithFileLock(HostsPath, () =>
+            Store.LocalFileTransaction.WriteAllTextAtomic(HostsPath, json, Encoding.UTF8));
     }
 
-    /// <summary>按 id 合并写入（导入主机 JSON 用）：已存在则整体覆盖，否则追加。</summary>
+    /// <summary>按 id 合并写入（导入主机 JSON 用）：在跨进程文件事务内读—改—原子写，损坏拒写。</summary>
     public static void Upsert(HostEntry entry)
     {
-        var list = Load();
-        var i = list.FindIndex(h => h.Id == entry.Id);
-        if (i >= 0) list[i] = entry; else list.Add(entry);
-        Save(list);
+        Store.LocalFileTransaction.MutateJsonStrict<List<HostEntry>>(
+            HostsPath,
+            () => new List<HostEntry>(),
+            list =>
+            {
+                var i = list.FindIndex(h => h.Id == entry.Id);
+                if (i >= 0) list[i] = entry; else list.Add(entry);
+            },
+            JsonOpts,
+            "store");
     }
 }
 
@@ -211,38 +206,55 @@ public static class RecentsStore
 
     public static List<string> LoadIds()
     {
-        try
+        return Store.LocalFileTransaction.WithFileLock(RecentsPath, () =>
         {
             if (!File.Exists(RecentsPath))
             {
-                // 首运行：用已存主机列表播种（顺序即历史顺序）。
                 var seeded = HostStore.Load().ConvertAll(h => h.Id);
-                SaveIds(seeded);
+                Store.LocalFileTransaction.WriteAllTextAtomic(RecentsPath, JsonSerializer.Serialize(seeded), Encoding.UTF8);
                 return seeded;
             }
-            var json = File.ReadAllText(RecentsPath, Encoding.UTF8);
-            return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
-        }
-        catch
-        {
+            try
+            {
+                var json = File.ReadAllText(RecentsPath, Encoding.UTF8);
+                var parsed = JsonSerializer.Deserialize<List<string>>(json);
+                if (parsed != null) return parsed;
+                Store.LocalFileTransaction.BackupCorruptFile(RecentsPath, "反序列化结果为 null", "store");
+            }
+            catch (Exception ex)
+            {
+                Store.LocalFileTransaction.BackupCorruptFile(RecentsPath, ex.Message, "store");
+            }
             return new List<string>();
-        }
+        });
     }
 
     private static void SaveIds(List<string> ids)
     {
-        var json = JsonSerializer.Serialize(ids);
-        File.WriteAllText(RecentsPath, json, Encoding.UTF8);
+        Store.LocalFileTransaction.WithFileLock(RecentsPath, () =>
+            Store.LocalFileTransaction.WriteAllTextAtomic(RecentsPath, JsonSerializer.Serialize(ids), Encoding.UTF8));
     }
 
     /// <summary>记一次连接：置顶该主机 id，去重，截断长度。</summary>
     public static void NoteRecent(string hostId)
     {
-        var ids = LoadIds();
-        ids.RemoveAll(id => id == hostId);
-        ids.Insert(0, hostId);
-        if (ids.Count > MaxRecents) ids.RemoveRange(MaxRecents, ids.Count - MaxRecents);
-        SaveIds(ids);
+        try
+        {
+            Store.LocalFileTransaction.MutateJsonStrict<List<string>>(
+                RecentsPath,
+                () => HostStore.Load().ConvertAll(h => h.Id),
+                ids =>
+                {
+                    ids.RemoveAll(id => id == hostId);
+                    ids.Insert(0, hostId);
+                    if (ids.Count > MaxRecents) ids.RemoveRange(MaxRecents, ids.Count - MaxRecents);
+                },
+                logCategory: "store");
+        }
+        catch (Exception ex)
+        {
+            Logging.Log.Warn($"更新连接历史失败，保留原文件: {ex.Message}", "store");
+        }
     }
 
     public static void ClearRecents() => SaveIds(new List<string>());
@@ -271,42 +283,32 @@ public static class CredentialStore
 
     private static string CredsPath => Path.Combine(HostStore.AppDir, "creds.dat");
 
-    private static Dictionary<string, string> LoadMap()
-    {
-        try
-        {
-            if (!File.Exists(CredsPath)) return new Dictionary<string, string>();
-            var json = File.ReadAllText(CredsPath, Encoding.UTF8);
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
-                   ?? new Dictionary<string, string>();
-        }
-        catch
-        {
-            return new Dictionary<string, string>();
-        }
-    }
+    private static Dictionary<string, string> LoadMap() =>
+        Store.LocalFileTransaction.ReadJsonOrBackup(
+            CredsPath,
+            () => new Dictionary<string, string>(),
+            logCategory: "creds");
 
-    private static void SaveMap(Dictionary<string, string> map)
-    {
-        var json = JsonSerializer.Serialize(map);
-        File.WriteAllText(CredsPath, json, Encoding.UTF8);
-    }
-
-    /// <summary>保存/更新某主机的密码（DPAPI 加密）。空密码表示清除。</summary>
+    /// <summary>保存/更新某主机的密码（DPAPI 加密）。在跨进程事务内更新，损坏时备份并阻止覆写。</summary>
     public static void SetPassword(string hostId, string? password)
     {
-        var map = LoadMap();
-        if (string.IsNullOrEmpty(password))
-        {
-            map.Remove(hostId);
-        }
-        else
-        {
-            var cipher = ProtectedData.Protect(
-                Encoding.UTF8.GetBytes(password), Entropy, DataProtectionScope.CurrentUser);
-            map[hostId] = Convert.ToBase64String(cipher);
-        }
-        SaveMap(map);
+        Store.LocalFileTransaction.MutateJsonStrict<Dictionary<string, string>>(
+            CredsPath,
+            () => new Dictionary<string, string>(),
+            map =>
+            {
+                if (string.IsNullOrEmpty(password))
+                {
+                    map.Remove(hostId);
+                }
+                else
+                {
+                    var cipher = ProtectedData.Protect(
+                        Encoding.UTF8.GetBytes(password), Entropy, DataProtectionScope.CurrentUser);
+                    map[hostId] = Convert.ToBase64String(cipher);
+                }
+            },
+            logCategory: "creds");
     }
 
     /// <summary>取回明文密码；不存在或解密失败返回 null。</summary>
@@ -329,8 +331,11 @@ public static class CredentialStore
 
     public static void Remove(string hostId)
     {
-        var map = LoadMap();
-        if (map.Remove(hostId)) SaveMap(map);
+        Store.LocalFileTransaction.MutateJsonStrict<Dictionary<string, string>>(
+            CredsPath,
+            () => new Dictionary<string, string>(),
+            map => map.Remove(hostId),
+            logCategory: "creds");
     }
 }
 
@@ -344,10 +349,9 @@ public class UiPrefs
 public static class UiStore
 {
     private static string PrefsPath => Path.Combine(HostStore.AppDir, "ui_prefs.json");
-    public static UiPrefs Load()
-    {
-        try { return JsonSerializer.Deserialize<UiPrefs>(File.ReadAllText(PrefsPath)) ?? new UiPrefs(); }
-        catch { return new UiPrefs(); }
-    }
-    public static void Save(UiPrefs prefs) => File.WriteAllText(PrefsPath, JsonSerializer.Serialize(prefs));
+    public static UiPrefs Load() =>
+        Store.LocalFileTransaction.ReadJsonOrBackup(PrefsPath, () => new UiPrefs(), logCategory: "store");
+    public static void Save(UiPrefs prefs) =>
+        Store.LocalFileTransaction.WithFileLock(PrefsPath, () =>
+            Store.LocalFileTransaction.WriteAllTextAtomic(PrefsPath, JsonSerializer.Serialize(prefs), Encoding.UTF8));
 }

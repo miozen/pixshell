@@ -69,49 +69,63 @@ public sealed class QuickCommandStore
     private void Load()
     {
         LoadGroups();
-        try
+        LocalFileTransaction.WithFileLock(_path, () =>
         {
-            if (File.Exists(_path))
+            if (!File.Exists(_path))
+            {
+                Commands = Defaults();
+                LocalFileTransaction.WriteAllTextAtomic(_path, JsonSerializer.Serialize(Commands, JsonOpts));
+                return;
+            }
+
+            try
             {
                 var json = File.ReadAllText(_path);
                 var list = JsonSerializer.Deserialize<List<QuickCommand>>(json, JsonOpts);
-                if (list is { Count: > 0 })
+                if (list != null)
                 {
+                    // 允许用户主动清空为合法空数组 []，不再用默认集覆写。
                     Commands = list;
                     return;
                 }
+                LocalFileTransaction.BackupCorruptFile(_path, "反序列化结果为 null", "quickcmd");
             }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"读取 quick-commands.json 失败，使用默认集: {ex.Message}", "quickcmd");
-        }
-        Commands = Defaults();
-        Save();
+            catch (Exception ex)
+            {
+                LocalFileTransaction.BackupCorruptFile(_path, ex.Message, "quickcmd");
+                Log.Warn($"读取 quick-commands.json 失败，保留原文件并以默认集仅内存回退: {ex.Message}", "quickcmd");
+            }
+
+            Commands = Defaults();
+        });
     }
 
     private void LoadGroups()
     {
-        try
-        {
-            if (File.Exists(_groupsPath))
-            {
-                var list = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(_groupsPath), JsonOpts);
-                if (list != null) EmptyGroups = list;
-            }
-        }
-        catch (Exception ex) { Log.Warn($"读取 quick-command-groups.json 失败: {ex.Message}", "quickcmd"); }
+        EmptyGroups = LocalFileTransaction.ReadJsonOrBackup(
+            _groupsPath,
+            () => new List<string>(),
+            JsonOpts,
+            "quickcmd");
     }
 
     public void Save()
     {
-        try { File.WriteAllText(_path, JsonSerializer.Serialize(Commands, JsonOpts)); }
+        try
+        {
+            LocalFileTransaction.WithFileLock(_path, () =>
+                LocalFileTransaction.WriteAllTextAtomic(_path, JsonSerializer.Serialize(Commands, JsonOpts)));
+        }
         catch (Exception ex) { Log.Warn($"写入 quick-commands.json 失败: {ex.Message}", "quickcmd"); }
     }
 
     private void SaveGroups()
     {
-        try { File.WriteAllText(_groupsPath, JsonSerializer.Serialize(EmptyGroups, JsonOpts)); }
+        try
+        {
+            LocalFileTransaction.WithFileLock(_groupsPath, () =>
+                LocalFileTransaction.WriteAllTextAtomic(_groupsPath, JsonSerializer.Serialize(EmptyGroups, JsonOpts)));
+        }
         catch (Exception ex) { Log.Warn($"写入 quick-command-groups.json 失败: {ex.Message}", "quickcmd"); }
     }
 
@@ -411,21 +425,69 @@ public sealed class QuickCommandStore
     };
 }
 
-/// <summary>发送目标（对齐 mac SendTarget：当前会话 / 所有已连接会话 / 指定会话下标）。</summary>
-public enum SendTargetKind { Current, AllConnected, Session }
+/// <summary>会话目标描述符：使用稳定 SessionId 绑定，不依赖动态列表下标。</summary>
+public sealed record SessionTargetItem(string Id, string Title, bool Connected);
+
+/// <summary>发送目标（当前会话 / 所有已连接会话 / 指定稳定会话 ID / 已断开失效会话）。</summary>
+public enum SendTargetKind { Current, AllConnected, Session, Unavailable }
 
 public readonly struct SendTarget
 {
     public SendTargetKind Kind { get; }
-    public int SessionIndex { get; }
+    public string? SessionId { get; }
+    public string? DisplayTitle { get; }
 
-    private SendTarget(SendTargetKind kind, int sessionIndex)
+    private SendTarget(SendTargetKind kind, string? sessionId, string? displayTitle)
     {
         Kind = kind;
-        SessionIndex = sessionIndex;
+        SessionId = sessionId;
+        DisplayTitle = displayTitle;
     }
 
-    public static SendTarget Current { get; } = new(SendTargetKind.Current, -1);
-    public static SendTarget AllConnected { get; } = new(SendTargetKind.AllConnected, -1);
-    public static SendTarget Session(int index) => new(SendTargetKind.Session, index);
+    public static SendTarget Current { get; } = new(SendTargetKind.Current, null, null);
+    public static SendTarget AllConnected { get; } = new(SendTargetKind.AllConnected, null, null);
+    public static SendTarget Session(string sessionId, string? displayTitle = null) =>
+        new(SendTargetKind.Session, sessionId, displayTitle);
+    public static SendTarget Unavailable(string? sessionId = null, string? displayTitle = null) =>
+        new(SendTargetKind.Unavailable, sessionId, displayTitle);
+}
+
+/// <summary>无 UI 依赖的目标匹配辅助：确保前序标签关闭后仍按会话唯一 ID 精确命中或显式拦截。</summary>
+public static class CommandTargetResolver
+{
+    public static List<string> ResolveTargetSessionIds(
+        SendTarget target,
+        IReadOnlyList<SessionTargetItem> sessions,
+        string? activeSessionId)
+    {
+        var ids = new List<string>();
+        switch (target.Kind)
+        {
+            case SendTargetKind.Current:
+                if (!string.IsNullOrEmpty(activeSessionId))
+                {
+                    var active = sessions.FirstOrDefault(s => s.Id == activeSessionId && s.Connected);
+                    if (active != null) ids.Add(active.Id);
+                }
+                break;
+
+            case SendTargetKind.AllConnected:
+                foreach (var s in sessions)
+                    if (s.Connected) ids.Add(s.Id);
+                break;
+
+            case SendTargetKind.Session:
+                if (!string.IsNullOrEmpty(target.SessionId))
+                {
+                    var match = sessions.FirstOrDefault(s => s.Id == target.SessionId && s.Connected);
+                    if (match != null) ids.Add(match.Id);
+                }
+                break;
+
+            case SendTargetKind.Unavailable:
+            default:
+                break;
+        }
+        return ids;
+    }
 }

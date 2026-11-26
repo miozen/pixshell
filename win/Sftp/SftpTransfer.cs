@@ -141,4 +141,59 @@ public static class SftpTransfer
 
     /// <summary>生成唯一临时包名（GUID，避免时间戳碰撞）。</summary>
     public static string Stamp() => Guid.NewGuid().ToString("N");
+
+    /// <summary>
+    /// 移动暂存文件或目录至目标路径；当跨 NTFS 卷（如 C:\Temp → D:\Downloads）导致 Move 失败时，
+    /// 自动回退为保留结构的复制并清理源路径，避免打包下载跨盘崩溃。
+    /// </summary>
+    public static void MoveEntryWithCrossVolumeFallback(string source, string target, bool forceCopyFallback = false)
+    {
+        var isDir = Directory.Exists(source);
+        var srcRoot = Path.GetPathRoot(Path.GetFullPath(source));
+        var dstRoot = Path.GetPathRoot(Path.GetFullPath(target));
+        var sameVolume = !forceCopyFallback
+            && string.Equals(srcRoot, dstRoot, StringComparison.OrdinalIgnoreCase);
+
+        if (sameVolume)
+        {
+            try
+            {
+                if (isDir) Directory.Move(source, target);
+                else File.Move(source, target);
+                return;
+            }
+            catch (IOException)
+            {
+                // 若因跨挂载点/符号链接/卷边界仍抛 IOException，则走下方复制+清理回退。
+            }
+        }
+
+        if (isDir)
+        {
+            CopyDirectoryRecursive(source, target);
+            Directory.Delete(source, recursive: true);
+        }
+        else
+        {
+            var parent = Path.GetDirectoryName(target);
+            if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+            File.Copy(source, target, overwrite: true);
+            File.Delete(source);
+        }
+    }
+
+    private static void CopyDirectoryRecursive(string sourceDir, string targetDir)
+    {
+        Directory.CreateDirectory(targetDir);
+        foreach (var file in Directory.EnumerateFiles(sourceDir))
+        {
+            var destFile = Path.Combine(targetDir, Path.GetFileName(file));
+            File.Copy(file, destFile, overwrite: true);
+        }
+        foreach (var dir in Directory.EnumerateDirectories(sourceDir))
+        {
+            var destSubDir = Path.Combine(targetDir, Path.GetFileName(dir));
+            CopyDirectoryRecursive(dir, destSubDir);
+        }
+    }
 }

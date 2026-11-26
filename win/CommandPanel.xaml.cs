@@ -28,8 +28,14 @@ public partial class CommandPanel : UserControl
     /// <summary>发送回调：(命令文本, 目标)。文本已含换行/回车。</summary>
     public Action<string, SendTarget>? OnSendTo { get; set; }
 
-    /// <summary>目标下拉数据源：所有会话标题 + 是否已连接（由宿主提供）。</summary>
-    public Func<List<(string title, bool connected)>>? SessionsProvider { get; set; }
+    /// <summary>目标下拉数据源：会话稳定 ID、标题及是否已连接（由宿主提供）。</summary>
+    public Func<List<SessionTargetItem>>? SessionsProvider { get; set; }
+
+    private const string CurrentTargetKey = "__CURRENT__";
+    private const string AllConnectedTargetKey = "__ALL__";
+    private const string DisconnectedPrefix = "__DISCONNECTED__:";
+    private string _selectedTargetKey = CurrentTargetKey;
+    private string _selectedTargetTitle = "";
 
     private string? _selectedGroup;
     private string? _selectedCmdId;   // 列表里被选中的那条（左栏「发送」用）
@@ -60,34 +66,67 @@ public partial class CommandPanel : UserControl
 
     public void ReloadTargets()
     {
+        var sessions = SessionsProvider?.Invoke() ?? new List<SessionTargetItem>();
         foreach (var combo in new[] { EdTargetCombo })
         {
-            var keep = combo.SelectedIndex;
+            if (combo.SelectedItem is ComboBoxItem currentItem && currentItem.Tag is string currentKey)
+            {
+                _selectedTargetKey = currentKey;
+                _selectedTargetTitle = currentItem.Content as string ?? "";
+            }
+
             combo.Items.Clear();
-            combo.Items.Add(L10n.T("cmd.current"));
-            combo.Items.Add(L10n.T("cmd.allConnected"));
-            foreach (var s in SessionsProvider?.Invoke() ?? new List<(string, bool)>())
-                if (s.connected) combo.Items.Add(s.title);
-            combo.SelectedIndex = keep >= 0 && keep < combo.Items.Count ? keep : 0;
+            combo.Items.Add(new ComboBoxItem { Content = L10n.T("cmd.current"), Tag = CurrentTargetKey });
+            combo.Items.Add(new ComboBoxItem { Content = L10n.T("cmd.allConnected"), Tag = AllConnectedTargetKey });
+
+            foreach (var s in sessions)
+                if (s.Connected) combo.Items.Add(new ComboBoxItem { Content = s.Title, Tag = s.Id });
+
+            var matched = false;
+            for (int i = 0; i < combo.Items.Count; i++)
+            {
+                if (combo.Items[i] is ComboBoxItem item && Equals(item.Tag, _selectedTargetKey))
+                {
+                    combo.SelectedIndex = i;
+                    matched = true;
+                    break;
+                }
+            }
+
+            if (!matched)
+            {
+                // 原指定会话已断开/关闭：禁止借下标顺延匹配下一台服务器，显式标出已断开占位项阻断误发送。
+                var disconnId = _selectedTargetKey.StartsWith(DisconnectedPrefix, StringComparison.Ordinal)
+                    ? _selectedTargetKey[DisconnectedPrefix.Length..]
+                    : _selectedTargetKey;
+                var displayBase = string.IsNullOrWhiteSpace(_selectedTargetTitle) ? disconnId : _selectedTargetTitle;
+                if (!displayBase.EndsWith("（已断开）", StringComparison.Ordinal))
+                    displayBase += "（已断开）";
+                var disconnItem = new ComboBoxItem
+                {
+                    Content = displayBase,
+                    Tag = DisconnectedPrefix + disconnId,
+                };
+                combo.Items.Add(disconnItem);
+                combo.SelectedIndex = combo.Items.Count - 1;
+            }
         }
     }
 
     private void TargetCombo_DropDownOpened(object? sender, EventArgs e) => ReloadTargets();
 
-    /// <summary>把某个下拉选中项解析成 SendTarget（下标 2 起对应"已连接会话"出现顺序）。</summary>
+    /// <summary>把某个下拉选中项解析成稳定会话 ID 目标（绝不依赖动态列表下标）。</summary>
     private SendTarget TargetOf(ComboBox combo)
     {
-        var idx = combo.SelectedIndex;
-        if (idx <= 0) return SendTarget.Current;
-        if (idx == 1) return SendTarget.AllConnected;
-        var connectedIdx = idx - 2;
-        var all = SessionsProvider?.Invoke() ?? new List<(string, bool)>();
-        var seen = -1;
-        for (int i = 0; i < all.Count; i++)
+        if (combo.SelectedItem is ComboBoxItem item && item.Tag is string key)
         {
-            if (!all[i].connected) continue;
-            seen++;
-            if (seen == connectedIdx) return SendTarget.Session(i);
+            _selectedTargetKey = key;
+            _selectedTargetTitle = item.Content as string ?? "";
+            if (key == CurrentTargetKey) return SendTarget.Current;
+            if (key == AllConnectedTargetKey) return SendTarget.AllConnected;
+            if (key.StartsWith(DisconnectedPrefix, StringComparison.Ordinal))
+                return SendTarget.Unavailable(key[DisconnectedPrefix.Length..], item.Content as string);
+            return SendTarget.Session(key, item.Content as string);
         }
         return SendTarget.Current;
     }

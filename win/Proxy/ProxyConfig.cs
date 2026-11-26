@@ -90,62 +90,67 @@ public static class ProxyStore
 
     public static List<ProxyConfig> Load()
     {
-        try
+        return Store.LocalFileTransaction.WithFileLock(FilePath, () =>
         {
-            if (!File.Exists(FilePath)) return new List<ProxyConfig>();
-            var json = File.ReadAllText(FilePath);
-            var list = JsonSerializer.Deserialize<List<ProxyConfig>>(json, JsonOpts) ?? new List<ProxyConfig>();
-            var migrated = false;
-            var migrationFailed = false;
-            foreach (var proxy in list)
+            try
             {
-                if (!string.IsNullOrEmpty(proxy.Password))
+                if (!File.Exists(FilePath)) return new List<ProxyConfig>();
+                var json = File.ReadAllText(FilePath);
+                var list = JsonSerializer.Deserialize<List<ProxyConfig>>(json, JsonOpts);
+                if (list == null)
                 {
-                    var legacyPassword = proxy.Password;
-                    var thisMigrationFailed = false;
-                    try
-                    {
-                        CredentialStore.SetPassword(CredentialId(proxy.Id), legacyPassword);
-                        if (CredentialStore.GetPassword(CredentialId(proxy.Id)) == legacyPassword)
-                            migrated = true;
-                        else
-                            thisMigrationFailed = true;
-                    }
-                    catch
-                    {
-                        thisMigrationFailed = true;
-                    }
-                    if (thisMigrationFailed)
-                    {
-                        migrationFailed = true;
-                        Logging.Log.Warn($"代理 {proxy.Id} 的明文凭据迁移失败，保留原配置", "proxy");
-                        continue;
-                    }
+                    Store.LocalFileTransaction.BackupCorruptFile(FilePath, "反序列化结果为 null", "proxy");
+                    return new List<ProxyConfig>();
                 }
-                proxy.Password = CredentialStore.GetPassword(CredentialId(proxy.Id)) ?? "";
+                var migrated = false;
+                var migrationFailed = false;
+                foreach (var proxy in list)
+                {
+                    if (!string.IsNullOrEmpty(proxy.Password))
+                    {
+                        var legacyPassword = proxy.Password;
+                        var thisMigrationFailed = false;
+                        try
+                        {
+                            CredentialStore.SetPassword(CredentialId(proxy.Id), legacyPassword);
+                            if (CredentialStore.GetPassword(CredentialId(proxy.Id)) == legacyPassword)
+                                migrated = true;
+                            else
+                                thisMigrationFailed = true;
+                        }
+                        catch
+                        {
+                            thisMigrationFailed = true;
+                        }
+                        if (thisMigrationFailed)
+                        {
+                            migrationFailed = true;
+                            Logging.Log.Warn($"代理 {proxy.Id} 的明文凭据迁移失败，保留原配置", "proxy");
+                            continue;
+                        }
+                    }
+                    proxy.Password = CredentialStore.GetPassword(CredentialId(proxy.Id)) ?? "";
+                }
+                if (migrated && !migrationFailed) SaveConfigUnsafe(list);
+                return list;
             }
-            if (migrated && !migrationFailed) SaveConfig(list);
-            return list;
-        }
-        catch (Exception ex)
-        {
-            Logging.Log.Warn($"代理配置解析失败，使用空列表: {ex.Message}", "proxy");
-            return new List<ProxyConfig>();
-        }
+            catch (Exception ex)
+            {
+                Store.LocalFileTransaction.BackupCorruptFile(FilePath, ex.Message, "proxy");
+                Logging.Log.Warn($"代理配置解析失败，使用空列表: {ex.Message}", "proxy");
+                return new List<ProxyConfig>();
+            }
+        });
     }
 
-    private static void SaveConfig(List<ProxyConfig> list)
+    private static void SaveConfigUnsafe(List<ProxyConfig> list)
     {
-        try
+        var safe = list.Select(proxy => new ProxyConfig
         {
-            var safe = list.Select(proxy => new ProxyConfig
-            {
-                Id = proxy.Id, Name = proxy.Name, Type = proxy.Type, Host = proxy.Host,
-                Port = proxy.Port, Username = proxy.Username, Password = "",
-            }).ToList();
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(safe, JsonOpts));
-        }
-        catch (Exception ex) { Logging.Log.Warn($"代理配置保存失败: {ex.Message}", "proxy"); }
+            Id = proxy.Id, Name = proxy.Name, Type = proxy.Type, Host = proxy.Host,
+            Port = proxy.Port, Username = proxy.Username, Password = "",
+        }).ToList();
+        Store.LocalFileTransaction.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(safe, JsonOpts));
     }
 
     public static List<ProxyConfig> List() => Load();
@@ -159,38 +164,64 @@ public static class ProxyStore
 
     public static void Upsert(ProxyConfig p)
     {
-        var list = Load();
-        var i = list.FindIndex(x => x.Id == p.Id);
-        if (i >= 0) list[i] = p; else list.Add(p);
         try
         {
-            foreach (var proxy in list)
-            {
-                if (string.IsNullOrEmpty(proxy.Password) && proxy.Id != p.Id) continue;
-                CredentialStore.SetPassword(CredentialId(proxy.Id), proxy.Password);
-                var stored = CredentialStore.GetPassword(CredentialId(proxy.Id));
-                if ((!string.IsNullOrEmpty(proxy.Password) && stored != proxy.Password)
-                    || (string.IsNullOrEmpty(proxy.Password) && stored != null))
-                    throw new InvalidOperationException("凭据写入后校验失败");
-            }
-            if (list.Any(proxy => !string.IsNullOrEmpty(proxy.Password)
-                && CredentialStore.GetPassword(CredentialId(proxy.Id)) != proxy.Password))
-                throw new InvalidOperationException("凭据写入后校验失败");
+            Store.LocalFileTransaction.MutateJsonStrict<List<ProxyConfig>>(
+                FilePath,
+                () => new List<ProxyConfig>(),
+                list =>
+                {
+                    var i = list.FindIndex(x => x.Id == p.Id);
+                    if (i >= 0) list[i] = p; else list.Add(p);
+                    foreach (var proxy in list)
+                    {
+                        if (string.IsNullOrEmpty(proxy.Password) && proxy.Id != p.Id) continue;
+                        CredentialStore.SetPassword(CredentialId(proxy.Id), proxy.Password);
+                        var stored = CredentialStore.GetPassword(CredentialId(proxy.Id));
+                        if ((!string.IsNullOrEmpty(proxy.Password) && stored != proxy.Password)
+                            || (string.IsNullOrEmpty(proxy.Password) && stored != null))
+                            throw new InvalidOperationException("凭据写入后校验失败");
+                    }
+                    if (list.Any(proxy => !string.IsNullOrEmpty(proxy.Password)
+                        && CredentialStore.GetPassword(CredentialId(proxy.Id)) != proxy.Password))
+                        throw new InvalidOperationException("凭据写入后校验失败");
+                    for (int k = 0; k < list.Count; k++)
+                    {
+                        list[k] = new ProxyConfig
+                        {
+                            Id = list[k].Id, Name = list[k].Name, Type = list[k].Type, Host = list[k].Host,
+                            Port = list[k].Port, Username = list[k].Username, Password = "",
+                        };
+                    }
+                },
+                JsonOpts,
+                "proxy");
         }
         catch (Exception ex)
         {
-            Logging.Log.Warn($"代理凭据保存失败，跳过代理配置写盘: {ex.Message}", "proxy");
-            return;
+            Logging.Log.Warn($"代理配置保存失败，已保持原文件不变: {ex.Message}", "proxy");
         }
-        SaveConfig(list);
     }
 
     public static void Delete(string id)
     {
-        var list = Load();
-        list.RemoveAll(x => x.Id == id);
-        CredentialStore.Remove(CredentialId(id));
-        SaveConfig(list);
+        try
+        {
+            Store.LocalFileTransaction.MutateJsonStrict<List<ProxyConfig>>(
+                FilePath,
+                () => new List<ProxyConfig>(),
+                list =>
+                {
+                    list.RemoveAll(x => x.Id == id);
+                    CredentialStore.Remove(CredentialId(id));
+                },
+                JsonOpts,
+                "proxy");
+        }
+        catch (Exception ex)
+        {
+            Logging.Log.Warn($"删除代理配置失败，已保持原文件不变: {ex.Message}", "proxy");
+        }
     }
 }
 

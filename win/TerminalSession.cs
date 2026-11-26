@@ -32,6 +32,9 @@ namespace PixShell;
 /// </summary>
 public sealed class TerminalSession : IDisposable
 {
+    /// <summary>会话实例唯一稳定 ID（命令面板目标锁定，不随标签顺序或关闭漂移）。</summary>
+    public string SessionId { get; } = Guid.NewGuid().ToString("N");
+
     private static void ExtractIncompleteANSI(string text, out string complete, out string incomplete)
     {
         int maxLookback = Math.Min(text.Length, 2048);
