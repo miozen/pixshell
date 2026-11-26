@@ -19,12 +19,11 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $scriptDir
 
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 $project = Join-Path $scriptDir 'PixShell.csproj'
 $testProject = Join-Path $scriptDir 'tests\PixShell.Tests.csproj'
-$framework = 'net9.0-windows'
+$framework = 'net10.0-windows'
 
 function Fail($message) {
     Write-Host "[ERROR] $message" -ForegroundColor Red
@@ -44,14 +43,17 @@ function Find-Dotnet {
         return $cmd.Source
     }
 
-    Fail 'dotnet was not found in PATH. Install .NET SDK 9 or set PIXSHELL_DOTNET to dotnet.exe.'
+    Fail 'dotnet was not found in PATH. Install .NET SDK 10 or set PIXSHELL_DOTNET to dotnet.exe.'
 }
 
 function Invoke-Dotnet {
     param(
-        [Parameter(ValueFromRemainingArguments = $true)]
         [string[]]$Arguments
     )
+
+    if (-not $Arguments -or $Arguments.Count -eq 0) {
+        Fail 'Invoke-Dotnet called without arguments.'
+    }
 
     Write-Host "> dotnet $($Arguments -join ' ')"
     & $dotnet @Arguments
@@ -103,91 +105,97 @@ function Test-PublishOutput($publishDir) {
     if ($SelfContained) {
         Write-Host '[OK] Self-contained: .NET runtime is bundled with the publish output.' -ForegroundColor Green
     } else {
-        Write-Host '[WARN] Framework-dependent publish: target needs .NET 9 Desktop Runtime.' -ForegroundColor Yellow
+        Write-Host '[WARN] Framework-dependent publish: target needs .NET 10 Desktop Runtime.' -ForegroundColor Yellow
     }
     Write-Host '[INFO] WebView2 Evergreen Runtime is still NOT bundled (system component on Win10/11).'
     Write-Host '       If missing: winget install Microsoft.EdgeWebView2Runtime'
 }
 
-if (-not (Test-Path -LiteralPath $project)) {
-    Fail "Project file not found: $project"
-}
-
-Test-SourceAssets
-$dotnet = Find-Dotnet
-Write-Host "[INFO] dotnet: $dotnet"
-& $dotnet --version
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-$selfContainedValue = 'false'
-if ($SelfContained) {
-    $selfContainedValue = 'true'
-}
-
-if ($Action -eq 'clean') {
-    $paths = @(
-        (Join-Path $scriptDir 'bin'),
-        (Join-Path $scriptDir 'obj'),
-        (Join-Path $scriptDir 'publish')
-    )
-    foreach ($path in $paths) {
-        if (Test-Path -LiteralPath $path) {
-            Write-Host "[INFO] Removing $path"
-            Remove-Item -LiteralPath $path -Recurse -Force
-        }
-    }
-    Write-Host '[OK] Clean complete.' -ForegroundColor Green
-    exit 0
-}
-
+Push-Location -LiteralPath $scriptDir
 try {
-    Get-Process -Name 'PixShell' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-} catch {
-    Write-Host '[WARN] Could not stop an existing PixShell process; continuing.' -ForegroundColor Yellow
-}
-
-if ($Action -eq 'test') {
-    if (-not (Test-Path -LiteralPath $testProject)) {
-        Fail "Test project not found: $testProject"
+    if (-not (Test-Path -LiteralPath $project)) {
+        Fail "Project file not found: $project"
     }
-    Invoke-Dotnet restore $testProject
-    Invoke-Dotnet test $testProject -c $Configuration --no-restore --verbosity minimal -nologo
-    Write-Host '[OK] Tests passed.' -ForegroundColor Green
-    exit 0
-}
 
-Invoke-Dotnet restore $project -r $Runtime
-
-if ($Action -eq 'build' -or $Action -eq 'run') {
-    Invoke-Dotnet build $project -c $Configuration -r $Runtime --self-contained $selfContainedValue --verbosity minimal -nologo --no-restore
-    $exe = Join-Path $scriptDir (Join-Path 'bin' (Join-Path $Configuration (Join-Path $framework (Join-Path $Runtime 'PixShell.exe'))))
-    if (-not (Test-Path -LiteralPath $exe)) {
-        Fail "Build succeeded but executable was not found: $exe"
+    Test-SourceAssets
+    $dotnet = Find-Dotnet
+    Write-Host "[INFO] dotnet: $dotnet"
+    & $dotnet --version
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
     }
-    Write-Host "[OK] Build output: $exe" -ForegroundColor Green
 
-    if ($Action -eq 'run') {
-        Write-Host '[INFO] Starting PixShell...'
-        Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe)
+    $selfContainedValue = 'false'
+    if ($SelfContained) {
+        $selfContainedValue = 'true'
     }
-    exit 0
-}
 
-if (-not $OutputDir) {
-    $OutputDir = Join-Path $scriptDir (Join-Path 'publish' $Runtime)
-}
-if (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
-    $OutputDir = Join-Path $scriptDir $OutputDir
-}
+    if ($Action -eq 'clean') {
+        $paths = @(
+            (Join-Path $scriptDir 'bin'),
+            (Join-Path $scriptDir 'obj'),
+            (Join-Path $scriptDir 'publish')
+        )
+        foreach ($path in $paths) {
+            if (Test-Path -LiteralPath $path) {
+                Write-Host "[INFO] Removing $path"
+                Remove-Item -LiteralPath $path -Recurse -Force
+            }
+        }
+        Write-Host '[OK] Clean complete.' -ForegroundColor Green
+        exit 0
+    }
 
-if (Test-Path -LiteralPath $OutputDir) {
-    Write-Host "[INFO] Removing previous publish output: $OutputDir"
-    Remove-Item -LiteralPath $OutputDir -Recurse -Force
-}
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+    try {
+        Get-Process -Name 'PixShell' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host '[WARN] Could not stop an existing PixShell process; continuing.' -ForegroundColor Yellow
+    }
 
-Invoke-Dotnet publish $project -c $Configuration -r $Runtime --self-contained $selfContainedValue -o $OutputDir --verbosity minimal -nologo --no-restore
-Test-PublishOutput $OutputDir
-Write-Host "[OK] Publish output: $OutputDir" -ForegroundColor Green
+    if ($Action -eq 'test') {
+        if (-not (Test-Path -LiteralPath $testProject)) {
+            Fail "Test project not found: $testProject"
+        }
+        Invoke-Dotnet @('restore', $testProject)
+        Invoke-Dotnet @('test', $testProject, '-c', $Configuration, '--no-restore', '--verbosity', 'minimal', '-nologo')
+        Write-Host '[OK] Tests passed.' -ForegroundColor Green
+        exit 0
+    }
+
+    Invoke-Dotnet @('restore', $project, '-r', $Runtime)
+
+    if ($Action -eq 'build' -or $Action -eq 'run') {
+        Invoke-Dotnet @('build', $project, '-c', $Configuration, '-r', $Runtime, '--self-contained', $selfContainedValue, '--verbosity', 'minimal', '-nologo', '--no-restore')
+        $exe = Join-Path $scriptDir (Join-Path 'bin' (Join-Path $Configuration (Join-Path $framework (Join-Path $Runtime 'PixShell.exe'))))
+        if (-not (Test-Path -LiteralPath $exe)) {
+            Fail "Build succeeded but executable was not found: $exe"
+        }
+        Write-Host "[OK] Build output: $exe" -ForegroundColor Green
+
+        if ($Action -eq 'run') {
+            Write-Host '[INFO] Starting PixShell...'
+            Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe)
+        }
+        exit 0
+    }
+
+    if (-not $OutputDir) {
+        $OutputDir = Join-Path $scriptDir (Join-Path 'publish' $Runtime)
+    }
+    if (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
+        $OutputDir = Join-Path $scriptDir $OutputDir
+    }
+
+    if (Test-Path -LiteralPath $OutputDir) {
+        Write-Host "[INFO] Removing previous publish output: $OutputDir"
+        Remove-Item -LiteralPath $OutputDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+
+    Invoke-Dotnet @('publish', $project, '-c', $Configuration, '-r', $Runtime, '--self-contained', $selfContainedValue, '-o', $OutputDir, '--verbosity', 'minimal', '-nologo', '--no-restore')
+    Test-PublishOutput $OutputDir
+    Write-Host "[OK] Publish output: $OutputDir" -ForegroundColor Green
+}
+finally {
+    Pop-Location
+}
