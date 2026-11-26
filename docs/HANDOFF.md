@@ -1,21 +1,22 @@
 # 开发接力状态
 
-- **Last Updated**: 2026-11-26（R3 阶段收尾拆分提交并推送 `origin/dev`，启动 R4）
-- **Current Branch**: `dev`（跟踪 `origin/dev`，含 R3 全部修复、测试与验收文档）
-- **Working Tree**: **CLEAN**（R3 业务修复、回归测试与阶段文档已拆分提交并推送 `origin/dev`；未改 `mac/`）
-- **Current Phase**: **R3 已完成收尾**，现进入 **R4（UI/渲染、SFTP/编辑器/工具窗与异步交互可靠性修复）**。
-- **Current Task**: 排查 R4 范围内（编辑器、SFTP 面板/传输并发与异常处理、监控/工具窗、WebSSH/异步异常逃逸等）剩余缺陷并按切片修复与测试。
-- **Last Completed（R3 收尾）**:
-  - `WIN-BUG-025/026/027`：`TerminalOutputBatcher` 输出合批背压、`TerminalSerialWriter` 后台 FIFO 输入/尺寸同步、`SemanticHighlight` 超长行保护与 50ms 超时、`terminal.html` resize 去重、`ExecAsync` 独立 `LinkedCTS` 与非阻塞 `Disconnect()`；
-  - R3 阶段验收：`62/62` xUnit 通过、完整 `Release` 自包含发布通过、3 项精简 GUI 冒烟（`R3-S1`～`R3-S3`）已确认通过。
-- **Validation Performed（R3 最终状态）**:
-  - 构建：`Release / net10.0-windows / win-x64`（self-contained），`win\publish\win-x64\PixShell.exe`（`2026/11/26 16:06:26`，`198144` 字节），`0` 错误；
-  - 自动化测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）**`62/62` 通过**（`0` 失败 / `0` 跳过 / `509 ms` / `0` 警告）；
-  - 人工冒烟：[MANUAL_TEST_CHECKLIST.md](file:///d:/20_Projects/pixshell/docs/MANUAL_TEST_CHECKLIST.md) `R3-S1`～`R3-S3` 均已确认 `Passed`。
+- **Last Updated**: 2026-11-26（R4 阶段收尾拆分提交并推送 `origin/dev`，进入 R5 最终综合验收与发布门禁检查）
+- **Current Branch**: `dev`（跟踪 `origin/dev`，含 R4 全部修复、测试及验收文档）
+- **Working Tree**: **CLEAN**（R4 业务修复、回归测试与阶段文档已拆分提交并推送 `origin/dev`；未改 `mac/`）
+- **Current Phase**: **R4 已完成收尾**，进入 **R5（全局发布就绪检查与收官验收）**。
+- **Current Task**: 开展 R5：检查并修复最后两处 `CS8602` 潜在空引用、运行版本一致性与 `package-win.ps1` ZIP 打包验证、执行全量回归 + WSL/本地隔离脚本 + 隔离 `--headless` 启动验证，形成最终交付汇总。
+- **Last Completed（R4 收尾）**:
+  - `AsyncTaskObserver` 接入 `SftpPanel`/`MainWindow` 消除全部 19 处 `CS4014`；`UploadDirect`/`DownloadDirect` 补全外层保护；`Rename`/`Mkdir` 接入 `RemoteFileName.TryNormalize`；
+  - `EditorWindow` 封送全部 LSP/保存回调至 UI 线程并修复 `FindPointerAtOffset` 与关窗定时器清理，消除 `CS0414`；
+  - R4 阶段验收：`72/72` xUnit 通过、完整 `Release` 自包含发布通过、3 项精简 GUI 冒烟（`R4-S1`～`R4-S3`）已确认通过。
+- **Validation Performed（R4 最终状态）**:
+  - 构建：`Release / net10.0-windows / win-x64`（self-contained），`win\publish\win-x64\PixShell.exe`（`2026/11/26 16:16:11`，`198144` 字节），`0` 错误；
+  - 自动化测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）**`72/72` 通过**（`0` 失败 / `0` 跳过 / `622 ms` / `0` 警告）；
+  - 人工冒烟：[MANUAL_TEST_CHECKLIST.md](file:///d:/20_Projects/pixshell/docs/MANUAL_TEST_CHECKLIST.md) `R4-S1`～`R4-S3` 均已确认 `Passed`。
 - **Validation Pending / Environment-Limited**:
-  - `Environment-Limited`：实时 SSH/SFTP/SCP 守护进程端到端压测与集成（本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`）；
-  - `Pending`：R4、R5。
+  - `Environment-Limited`：实时 SSH/SFTP/SCP 守护进程集成测试（无 Docker/`sshd`）与本机 Inno Setup `.exe` 安装包生成（无 `ISCC.exe`，需手动 `dev` CI 跑 Inno Setup）；
+  - `Pending`：R5 最终校验、打包测试与发布前核对。
 - **Known Issues / Blockers**:
   - 本机未安装 `docker`、Windows/WSL `sshd`、`gh` CLI 与 `ISCC.exe`。
-- **Exact Next Action**: 开展 R4 缺陷定位与切片实施（编辑器/SFTP 异步未捕获异常处理、工具窗/WebSSH/UI 稳定性与交互体验），补充单元测试并增量编译验证。
-- **Cross-machine Ready**: **YES** — R3 全部修复、测试与文档已完成拆分提交并推送 `origin/dev`。
+- **Exact Next Action**: 完成 R5 尾项修复（`CS8602`）、版本校验、ZIP 打包、全量回归与 `dev` 综合收尾验证。
+- **Cross-machine Ready**: **YES** — R4 全部修复、测试与文档已完成拆分提交并推送 `origin/dev`。

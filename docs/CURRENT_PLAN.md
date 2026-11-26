@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）、R1、R2 与 R3（`WIN-BUG-025/026/027` 终端稳定性全部代码、`62/62` xUnit 自动化回归、完整 `Release` 发布及 3 项精简 GUI 冒烟确认通过，并已拆分提交推送 `origin/dev`）。现启动 R4（UI/交互、SFTP/编辑器/监控与局部可靠性修复）。macOS 保持不动。**
+**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）、R1、R2、R3 与 R4（UI/编辑器/SFTP 异步可靠性全部代码、`72/72` xUnit 自动化回归、完整 `Release` 发布及 3 项精简 GUI 冒烟确认通过，并已拆分提交推送 `origin/dev`）。现启动 R5（最终发布就绪检查：打包/ZIP/版本一致性校验、空引用尾项检查与全局收尾验收）。macOS 保持不动。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -52,7 +52,10 @@
     - [TerminalSerialWriter.cs](../win/Terminal/TerminalSerialWriter.cs) + [terminal.html](../win/web/terminal.html)：把键盘输入/粘贴 `Write`/`Flush` 与 `SendWindowChangeRequest` 移出 WPF UI 线程至后台 FIFO 串行写入器，并在 JS 侧对 `doFit()` 尺寸去重；
     - [SemanticHighlight.cs](../win/Highlight/SemanticHighlight.cs)：删除 `RKw`/`RQuoted` 重复扫描，添加 50ms 正则超时兜底与超长单行（>4096）跳过保护，补全 `\u001b[m` 重置状态；
     - `TerminalSession.ExecAsync` 改用会话级断开取消源 + 独立调用级 `LinkedCTS`（防止 3s `PollMonitor` 误取消在途命令），移除 `Disconnect()` 内 UI 线程同步 `Join(2000)` 避免关签冻结。
-  - 后续按计划推进 **R4（UI/渲染、SFTP/工具窗与交互修复）** 与 **R5**。
+  - **R4（全阶段编码与自动化验收完成：UI/编辑器 LSP 线程安全、SFTP 异步异常观测与路径校验）**：
+    - [AsyncTaskObserver.cs](../win/Store/AsyncTaskObserver.cs)、[SftpPanel.xaml.cs](../win/SftpPanel.xaml.cs) 与 [MainWindow.xaml.cs](../win/MainWindow.xaml.cs)：统一观测所有 UI 触发的无 `await` SFTP/本地加载/直传/新建/删除/保存异步任务，异常记录日志并即时更新状态栏（彻底消除 19 处 `CS4014` 静默异常风险）；为 `UploadDirect`/`DownloadDirect` 补充外层 `try/catch/finally` 保护；`Rename` 与 `Mkdir` 接入 `RemoteFileName.TryNormalize` 拦截 `..` 与分隔符；
+    - [EditorWindow.xaml.cs](../win/UI/EditorWindow.xaml.cs)：`ReadyChanged`/`Diagnostics`/`Hover`/`Definition`/`Completion`/`OnSave` 全部安全封送至 UI `Dispatcher` 并检查 `_isClosed`；修复 `ApplyDiagnostics` 与 `LspGoToDefinition` 使用 `FindPointerAtOffset` 精准定位；关窗清理定时器和补全弹窗并消除 `CS0414`。
+  - 后续按计划推进 **R5（工具链收尾、发布前版本/安装器/CI 验收准备与全局收官）**。
 - OpenWrt/Dropbear 重连问题本轮按外部/服务端或链路共享状态处理并结束客户端修复；未来仅在存在可重复的 PixShell/FinalShell 对照差异时，补齐 Dropbear、conntrack/防火墙和代理路径证据后再重开。
 - W3 已由 D-012 排除；W1、W2、W4 与 W5 的全部已确认实现事项已完成，待按用户约定统一验证。
 - 集中验证时覆盖 W5：`.env`、`config.json`、无扩展名和 Unicode 文件名；同名文件/目录不覆盖；权限失败反馈；三种远端后端不静默成功；创建后能打开、保存并在刷新后可见。
@@ -112,10 +115,15 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
   - 完整发布：`win/build.ps1 -Action publish -Configuration Release -Runtime win-x64`（`Release / net10.0-windows / win-x64` self-contained）成功，`0` 错误，最新可执行文件 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 16:06:26`，`198144` 字节）；
   - 集中冒烟验收：R3 精简人工 GUI 冒烟清单（`R3-S1`～`R3-S3`）已由用户确认通过，记为 `Passed`。
 
+- R4 阶段收尾验收（已拆分提交并推送 `origin/dev`）：
+  - 全量测试：`win/build.ps1 -Action test -Configuration Release`（`net10.0`）xUnit **`72/72` 通过**（`0` 失败、`0` 跳过、`622 ms`，`0` 警告；含新增 10 项 `R4ReliabilityTests`）；
+  - 完整发布：`win/build.ps1 -Action publish -Configuration Release -Runtime win-x64`（`Release / net10.0-windows / win-x64` self-contained）成功，`0` 错误、`2` 条唯一既有 `CS8602` 警告（`0` `CS4014`、`0` `CS0414`），最新可执行文件 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（`2026/11/26 16:16:11`，`198144` 字节）；
+  - 集中冒烟验收：R4 精简人工 GUI 冒烟清单（`R4-S1`～`R4-S3`）已由用户确认通过，记为 `Passed`。
+
 ## Blockers
 
-- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；此外本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`（`/usr/sbin/sshd`、`sftp-server`），实时 SSH/SFTP/SCP 守护进程自动化集成测试处于 `Environment-Limited` 状态（不阻断 R4 开发）。
+- 本机未安装 `gh` CLI 及 Inno Setup 6（`ISCC.exe`）；此外本机及 WSL `Ubuntu` 未安装 Docker / `openssh-server`（`/usr/sbin/sshd`、`sftp-server`），实时 SSH/SFTP/SCP 守护进程自动化集成测试处于 `Environment-Limited` 状态（不阻断 R5 开发与打包验收）。
 
 ## Next Action
 
-开展 **R4（UI/渲染、SFTP/编辑器/工具窗与异步交互可靠性修复）**，排查目标缺陷路径后逐片实施、补充自动化回归测试并验证。
+开展 **R5（Windows 发布前综合收尾验收）**：核查最后两处 `CS8602` 空引用路径、执行版本一致性校验、`package-win.ps1` ZIP 打包及隔离 `--headless`/WSL 全量回归，整理全阶段最终交付清单与发布候选状态。

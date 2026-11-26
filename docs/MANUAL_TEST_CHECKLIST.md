@@ -118,3 +118,24 @@
 | **R3-S1** | `WIN-BUG-025`, `027` | 已连接一个正常 SSH 或本机终端会话。 | 1. 执行一次较大输出命令（如 `ls -laR /usr` 或 `find /etc`）并同时来回切换标签、拖动侧栏或按 `Ctrl+C`；<br>2. 调整一次窗口大小。 | 1. 大量输出刷屏期间 WPF 界面、标签切换、拖动与 `Ctrl+C` 中断保持流畅不假死，中文输出无 `U+FFFD`；<br>2. 窗口/终端尺寸自适应贴合无明显延迟。 | `Passed`（用户确认通过） |
 | **R3-S2** | `WIN-BUG-026` | 已连接一个 SSH 会话标签。 | 1. 粘贴一段多行命令/文本到终端；<br>2. 在终端运行命令期间点击顶部「文件/监控」或关闭当前标签。 | 1. 粘贴响应迅速不卡窗口；<br>2. 关闭正在运行输出或待命的会话标签时窗口瞬间关闭标签，不再卡顿 2 秒。 | `Passed`（用户确认通过） |
 | **R3-S3** | `WIN-BUG-025`, `026` | 正在开启右侧监控栏并连接到同一台 SSH 主机。 | 1. 等待右侧监控图表刷新一次，同时在左侧 SFTP 浏览或切换目录；<br>2. 断开再重连一次。 | 1. 监控 3 秒自动刷新与 SFTP/工具栏操作互不干扰；<br>2. 断开重连后输入输出正常。 | `Passed`（用户确认通过） |
+
+---
+
+## 六、R4 阶段验收清单（编辑器线程安全、SFTP 异步观测与名称防护）
+
+- **最新阶段构建（R4 完整发布）**：`Release / net10.0-windows / win-x64`（self-contained），完整路径 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（构建时间 `2026/11/26 16:16:11`，`0` 错误，xUnit **`72/72` 通过**）。
+
+### 6.1 R4 自动化单元测试项（10 项新增，xUnit `net10.0`）
+
+| 追溯编号 | 模块 | 覆盖内容与验证边界 | 对应测试方法（`win/tests/`） | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **R4-1** | `AsyncTaskObserver` | 异步任务故障时安全捕获并回调错误信息不产生未观测异常；忽略主动取消并静默放行正常完成任务 | `R4ReliabilityTests.AsyncTaskObserverReportsFaultedTaskWithoutUnobservedException`<br>`R4ReliabilityTests.AsyncTaskObserverIgnoresCancellationAndHandlesSuccessCleanly` | `Passed` |
+| **R4-2** | `SftpPanel` (`Rename`/`Mkdir`) | 拦截 `.`/`..`/`../escape`/`a/b`/`a\b` 与空白名，正常保留合法点文件与中文/空格命名 | `R4ReliabilityTests.RemoteFileNameRejectsTraversalAndDirectorySeparatorsForRenameAndMkdir`（6 组）<br>`R4ReliabilityTests.RemoteFileNameNormalizesValidRenameAndMkdirNames`（2 组） | `Passed` |
+
+### 6.2 R4 精简人工 GUI 冒烟清单（仅交互与基础体验，3 项）
+
+| 冒烟编号 | 覆盖范围 | 测试前置条件 | 精简操作步骤 | 预期结果 | 验收状态 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **R4-S1** | 编辑器保存与关闭生命周期 | 已连接测试主机，打开任意远端小文本文件编辑。 | 1. 编辑保存一次后直接关闭窗口；<br>2. 若本机装有 `rust-analyzer` 且测试目录有 `.rs` 文件，可选打开 `.rs` 验证诊断/补全无崩溃。 | 1. 保存状态正常显示时间并清脏标记，关闭不再残留定时器或卡顿；<br>2. `.rs` LSP 诊断/悬停不崩溃（无 `rust-analyzer` 可忽略此小步）。 | `Passed`（用户确认通过） |
+| **R4-S2** | SFTP 命名边界与状态栏反馈 | 已连接测试主机上的临时目录。 | 1. 尝试重命名或新建目录输入 `../bad`；<br>2. 改为合法名完成新建与删除清理。 | 1. 非法路径名在界面状态栏被明确拦截，不发往服务端；<br>2. 合法目录/文件操作及本地栏切换刷新正常。 | `Passed`（用户确认通过） |
+| **R4-S3** | 打包关闭态单文件直传响应 | 已连接测试主机，关闭“打包传输”开关。 | 1. 直传上传及下载一个普通小文件。 | 1. 直传过程界面与状态栏反馈清晰，无静默失败或异常弹窗。 | `Passed`（用户确认通过） |
