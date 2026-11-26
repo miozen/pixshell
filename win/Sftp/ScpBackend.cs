@@ -79,16 +79,14 @@ public class ScpBackend
 
     public void UploadFile(string localPath, string remotePath)
     {
-        using var scp = _session.CreateScpClient();
-        scp.Connect();
+        using var scp = _session.CreateAndConnectScpClient();
         using var fs = File.OpenRead(localPath);
         scp.Upload(fs, remotePath);
     }
 
     public void DownloadFile(string remotePath, string localPath)
     {
-        using var scp = _session.CreateScpClient();
-        scp.Connect();
+        using var scp = _session.CreateAndConnectScpClient();
         using var fs = File.Create(localPath);
         scp.Download(remotePath, fs);
     }

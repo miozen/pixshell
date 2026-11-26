@@ -76,13 +76,23 @@ public partial class ProxyWindow : Window
     private void New_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new ProxyEditWindow(null) { Owner = this };
-        if (dlg.ShowDialog() == true) { ProxyStore.Upsert(dlg.Result); Reload(); }
+        if (dlg.ShowDialog() == true)
+        {
+            if (!ProxyStore.TryUpsert(dlg.Result, out var err))
+                MessageBox.Show(this, $"代理配置或凭据保存失败：{err}", "PixShell", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Reload();
+        }
     }
 
     private void EditProxy(ProxyConfig p)
     {
         var dlg = new ProxyEditWindow(p) { Owner = this };
-        if (dlg.ShowDialog() == true) { ProxyStore.Upsert(dlg.Result); Reload(); }
+        if (dlg.ShowDialog() == true)
+        {
+            if (!ProxyStore.TryUpsert(dlg.Result, out var err))
+                MessageBox.Show(this, $"代理配置或凭据保存失败：{err}", "PixShell", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Reload();
+        }
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

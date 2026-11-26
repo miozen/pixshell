@@ -49,29 +49,37 @@ public static class RemoteFsFactory
         }
 
         // Tier 2: ProcSftpClient（ssh exec sftp-server, 需要 openssh-sftp-server）
-        ProcSftpClient? proc = null;
-        try
+        // 配置了代理时禁止由系统 ssh.exe 绕过代理直连（WIN-BUG-013A），直接落至走代理的 ScpBackend。
+        if (!session.HasConfiguredProxy)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            proc = new ProcSftpClient();
-            var err = proc.Connect(session.HostName, session.HostPort(), session.HostUser(), null, session.HostKeyPath());
-            if (err == null)
+            ProcSftpClient? proc = null;
+            try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                Log.Info("RemoteFs: SFTP (ssh exec) 已连接", "sftp");
-                return new ProcAdapter(proc);
+                proc = new ProcSftpClient();
+                var err = proc.Connect(session.HostName, session.HostPort(), session.HostUser(), null, session.HostKeyPath());
+                if (err == null)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Log.Info("RemoteFs: SFTP (ssh exec) 已连接", "sftp");
+                    return new ProcAdapter(proc);
+                }
+                proc.Dispose();
+                Log.Warn($"RemoteFs: exec sftp 失败 ({err})，回落 SCP …", "sftp");
             }
-            proc.Dispose();
-            Log.Warn($"RemoteFs: exec sftp 失败 ({err})，回落 SCP …", "sftp");
+            catch (OperationCanceledException)
+            {
+                try { proc?.Dispose(); } catch { }
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"RemoteFs: exec sftp 异常 ({ex.Message})，回落 SCP …", "sftp");
+            }
         }
-        catch (OperationCanceledException)
+        else
         {
-            try { proc?.Dispose(); } catch { }
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"RemoteFs: exec sftp 异常 ({ex.Message})，回落 SCP …", "sftp");
+            Log.Info("RemoteFs: 会话已配置代理，跳过直连 ssh exec sftp，回落代理通道 SCP …", "sftp");
         }
 
         // Tier 3: ScpBackend（SCP + shell, Dropbear 原生支持）

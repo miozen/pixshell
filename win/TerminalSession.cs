@@ -14,6 +14,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using PixShell.Logging;
 using PixShell.Proxy;
+using PixShell.Store;
 using PixShell.Terminal;
 using Renci.SshNet;
 
@@ -212,6 +213,7 @@ public sealed class TerminalSession : IDisposable
     private string _pass = "";
     private string? _keyPath;
     private ProxyConfig? _proxy;
+    internal bool HasConfiguredProxy => _proxy != null;
 
     // ---------------------------------------------------------------------
     // 会话输出缓冲：供本地 CLI/Agent 桥 GET /v1/app/screen 读取"最近屏幕"（对齐 mac
@@ -761,7 +763,8 @@ public sealed class TerminalSession : IDisposable
         var expandedKey = keyPath != null ? ExpandKeyPath(keyPath) : null;
         if (expandedKey != null && IsFIDO2Key(expandedKey))
         {
-            ConnectViaOpenSSH(connectHost, port, user, expandedKey);
+            ProxyConnectionPolicy.EnsureOpenSshSupported(proxy);
+            ConnectViaOpenSSH(host, port, user, expandedKey);
             return;
         }
         var info = BuildConnectionInfo(connectHost, port, user, pass, keyPath, proxy);
@@ -770,7 +773,7 @@ public sealed class TerminalSession : IDisposable
         try
         {
             ssh.KeepAliveInterval = TimeSpan.FromSeconds(30);
-            ssh.Connect();
+            new SshHostKeyGuard(host, port).Connect(ssh);
 
             var shell = ssh.CreateShellStream("xterm-256color", _cols, _rows, 0, 0, 4096);
 
@@ -1169,7 +1172,7 @@ public sealed class TerminalSession : IDisposable
         };
         try
         {
-            sftp.Connect();
+            new SshHostKeyGuard(_host, _port).Connect(sftp);
             return sftp;
         }
         catch
@@ -1192,7 +1195,32 @@ public sealed class TerminalSession : IDisposable
                 "文件传输请改用密码或普通密钥登录，或直接使用 scp/sftp 命令。");
         var info = BuildConnectionInfo(_host, _port, _user, _pass, _keyPath, _proxy);
         info.Timeout = TimeSpan.FromSeconds(30);
-        return new ScpClient(info, RemotePathTransformation.ShellQuote);
+        var scp = new ScpClient(info, RemotePathTransformation.ShellQuote);
+        new SshHostKeyGuard(_host, _port).Attach(scp);
+        return scp;
+    }
+
+    internal ScpClient CreateAndConnectScpClient()
+    {
+        if (!_connected) throw new InvalidOperationException("会话未连接");
+        if (_isLocal) throw new InvalidOperationException("本机终端无远端 SCP");
+        if (_isOpenSSH)
+            throw new InvalidOperationException(
+                "FIDO2 硬件密钥会话暂不支持 SCP 面板（SSH.NET 无 sk-* 算法支持）。" +
+                "文件传输请改用密码或普通密钥登录，或直接使用 scp/sftp 命令。");
+        var info = BuildConnectionInfo(_host, _port, _user, _pass, _keyPath, _proxy);
+        info.Timeout = TimeSpan.FromSeconds(30);
+        var scp = new ScpClient(info, RemotePathTransformation.ShellQuote);
+        try
+        {
+            new SshHostKeyGuard(_host, _port).Connect(scp);
+            return scp;
+        }
+        catch
+        {
+            try { scp.Dispose(); } catch { }
+            throw;
+        }
     }
 
     /// <summary>展开 ~ 与环境变量，供私钥路径存在性检查与加载共用。</summary>
@@ -1533,23 +1561,18 @@ public sealed class TerminalSession : IDisposable
 
         if (methods.Count == 0) methods.Add(new PasswordAuthenticationMethod(user, pass ?? ""));
 
-        // 代理：SshJump（跳板机）本版本未实现真正逻辑——退化为直连，只记一条日志，绝不假装能走通导致连接卡死
-        // （对齐 mac NIOSSHSession.connectAndOpenShell 里对 .sshJump 的处理）。
-        if (proxy != null && proxy.Type == ProxyType.SshJump)
-        {
-            Log.Warn($"代理「{proxy.Name}」类型为 ssh-jump(跳板机)，当前版本未实现，跳过代理直接连接 {host}:{port}", "proxy");
-            proxy = null;
-        }
+        // 代理策略校验（WIN-BUG-013A）：ssh-jump 或残缺配置严格报错，严禁静默降级为直连。
+        ProxyConnectionPolicy.ValidateForSshConnection(proxy);
 
         ConnectionInfo info;
-        if (proxy != null && !string.IsNullOrEmpty(proxy.Host))
+        if (proxy != null)
         {
             var proxyType = proxy.Type switch
             {
                 ProxyType.Socks5 => Renci.SshNet.ProxyTypes.Socks5,
                 ProxyType.Socks4 => Renci.SshNet.ProxyTypes.Socks4,
                 ProxyType.Http => Renci.SshNet.ProxyTypes.Http,
-                _ => Renci.SshNet.ProxyTypes.None,
+                _ => throw new NotSupportedException($"不支持的代理类型: {proxy.Type}"),
             };
             Log.Info($"经代理 {proxy.Type} {proxy.Host}:{proxy.Port} 连接 {host}:{port}", "proxy");
             // 局域网直连：15s 太长，握手/TCP 超时压到 5s；失败更快露出错误而不是干等。
@@ -2000,6 +2023,9 @@ public sealed class TerminalSession : IDisposable
     public void Dispose()
     {
         Disconnect();
+        _pass = "";
+        _proxy = null;
+        _keyPath = null;
         try
         {
             if (View.CoreWebView2 != null)

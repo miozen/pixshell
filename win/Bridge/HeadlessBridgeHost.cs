@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using PixShell.Logging;
 using PixShell.Proxy;
+using PixShell.Store;
 using Renci.SshNet;
 
 namespace PixShell.Bridge;
@@ -205,7 +206,7 @@ public sealed class HeadlessBridgeHost : IBridgeHost
 
         try
         {
-            ssh.Connect();
+            new SshHostKeyGuard(h.Host, h.Port).Connect(ssh);
             var shell = ssh.CreateShellStream("xterm-256color", 100, 30, 0, 0, 4096);
             sess.Shell = shell;
             sess.Connected = true;
@@ -324,7 +325,7 @@ public sealed class HeadlessBridgeHost : IBridgeHost
                 var info = TerminalSession.BuildConnectionInfo(connectHost, h.Port, h.Username, pw, h.KeyPath, proxy);
                 info.Timeout = TimeSpan.FromSeconds(20);
                 var ssh = new SshClient(info) { KeepAliveInterval = TimeSpan.FromSeconds(30) };
-                ssh.Connect();
+                new SshHostKeyGuard(h.Host, h.Port).Connect(ssh);
                 var shell = ssh.CreateShellStream("xterm-256color", 100, 30, 0, 0, 4096);
 
                 // 原地替换旧会话的 Ssh/Shell（锁内换，下标不变）
@@ -458,8 +459,16 @@ public sealed class HeadlessBridgeHost : IBridgeHost
             s.Host.Username, s.Password, s.Host.KeyPath, proxy);
         info.Timeout = TimeSpan.FromSeconds(30);
         var sftp = new SftpClient(info) { OperationTimeout = TimeSpan.FromSeconds(30) };
-        sftp.Connect();
-        return sftp;
+        try
+        {
+            new SshHostKeyGuard(s.Host.Host, s.Host.Port).Connect(sftp);
+            return sftp;
+        }
+        catch
+        {
+            try { sftp.Dispose(); } catch { }
+            throw;
+        }
     }
 
     /// <summary>关闭全部会话并触发退出回调（有头接管 / 无头自然退出用）。</summary>

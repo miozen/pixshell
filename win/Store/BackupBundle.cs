@@ -104,7 +104,9 @@ public static class WebDavBackup
         });
     }
 
-    public static void Save(Config c)
+    public static void Save(Config c) => TrySave(c, out _);
+
+    public static bool TrySave(Config c, out string? error)
     {
         try
         {
@@ -117,8 +119,15 @@ public static class WebDavBackup
                     throw new InvalidOperationException("WebDAV 凭据写入后校验失败");
                 SaveUnsafe(c);
             });
+            error = null;
+            return true;
         }
-        catch (Exception ex) { Log.Warn($"WebDAV 配置保存失败: {ex.Message}", "backup"); }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            Log.Warn($"WebDAV 配置保存失败: {ex.Message}", "backup");
+            return false;
+        }
     }
 
     private static void SaveUnsafe(Config c)
@@ -131,22 +140,29 @@ public static class WebDavBackup
         }));
     }
 
-    private static HttpRequestMessage? BuildRequest(Config c, HttpMethod method, string? body)
+    private static bool TryBuildRequest(
+        Config c, HttpMethod method, string? body, out HttpRequestMessage? request, out string? error)
     {
-        if (string.IsNullOrWhiteSpace(c.Url) || !Uri.TryCreate(c.Url, UriKind.Absolute, out var uri)) return null;
+        if (!WebDavSecurityPolicy.ValidateEndpoint(c.Url, out var uri, out error) || uri == null)
+        {
+            request = null;
+            return false;
+        }
         var req = new HttpRequestMessage(method, uri);
         var token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{c.Username}:{c.Password}"));
         req.Headers.Authorization = new AuthenticationHeaderValue("Basic", token);
         if (body != null) req.Content = new StringContent(body, Encoding.UTF8, "application/json");
-        return req;
+        request = req;
+        error = null;
+        return true;
     }
 
     /// <summary>上传备份包；返回 null 表示成功，否则返回错误描述。</summary>
     public static async Task<string?> Push(Config c, BackupBundle bundle)
     {
         var body = bundle.Encode();
-        var req = BuildRequest(c, HttpMethod.Put, body);
-        if (req == null) return "URL 无效";
+        if (!TryBuildRequest(c, HttpMethod.Put, body, out var req, out var err) || req == null)
+            return err ?? "URL 无效";
         Log.Info($"WebDAV 上传 {c.Url}（{body.Length} 字节）", "backup");
         try
         {
@@ -166,8 +182,8 @@ public static class WebDavBackup
     /// <summary>下载备份包。</summary>
     public static async Task<(BackupBundle? bundle, string? error)> Pull(Config c)
     {
-        var req = BuildRequest(c, HttpMethod.Get, null);
-        if (req == null) return (null, "URL 无效");
+        if (!TryBuildRequest(c, HttpMethod.Get, null, out var req, out var err) || req == null)
+            return (null, err ?? "URL 无效");
         Log.Info($"WebDAV 下载 {c.Url}", "backup");
         try
         {

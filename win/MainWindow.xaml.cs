@@ -627,6 +627,13 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Log.Error($"会话打开失败 {host.Username}@{host.Host}: {ex.Message}", "session");
+            if (TryGetHostKeyFailure(ex, out var hostKeyEx))
+            {
+                ConnectAnim.Fail("主机指纹校验失败", autoHide: false);
+                SetStatus($"主机指纹校验失败: {hostKeyEx.VerificationResult.CanonicalHost}");
+                MessageBox.Show(this, hostKeyEx.Message, "PixShell — 主机安全警告", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
             var authFail = IsAuthFailure(ex);
             // 用户反馈：Win11 目标机默认防火墙拦截 22 入站 → 报"积极拒绝/超时"，
             // 用户误以为是密钥/证书问题。Socket 层失败时给出放行指引。
@@ -643,10 +650,27 @@ public partial class MainWindow : Window
         }
     }
 
+    private static bool TryGetHostKeyFailure(
+        Exception ex,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out KnownHosts.HostKeyVerificationException? failure)
+    {
+        for (Exception? e = ex; e != null; e = e.InnerException)
+        {
+            if (e is KnownHosts.HostKeyVerificationException hke)
+            {
+                failure = hke;
+                return true;
+            }
+        }
+        failure = null;
+        return false;
+    }
+
     /// <summary>连接失败疑似防火墙拦截：Socket 层拒绝/超时/不可达（区别于认证失败）。
     /// 覆盖 SSH.NET 与系统 OpenSSH 两条路径的异常形态。</summary>
     private static bool IsFirewallLikely(Exception ex)
     {
+        if (TryGetHostKeyFailure(ex, out _)) return false;
         for (Exception? e = ex; e != null; e = e.InnerException)
         {
             if (e is System.Net.Sockets.SocketException se)
@@ -675,6 +699,7 @@ public partial class MainWindow : Window
     /// <summary>区分 SSH 认证失败 vs 网络/超时/其它。只用于提示和重试，不再删除已存密码。</summary>
     private static bool IsAuthFailure(Exception ex)
     {
+        if (TryGetHostKeyFailure(ex, out _)) return false;
         for (Exception? e = ex; e != null; e = e.InnerException)
         {
             if (e is SshAuthenticationException) return true;
@@ -734,6 +759,7 @@ public partial class MainWindow : Window
 
     private static bool IsTransientSshSetupFailure(Exception ex)
     {
+        if (TryGetHostKeyFailure(ex, out _)) return false;
         for (Exception? e = ex; e != null; e = e.InnerException)
         {
             if (e is System.Net.Sockets.SocketException socket &&
@@ -3075,10 +3101,14 @@ public partial class MainWindow : Window
         var cancel = new Button { Content = "取消", Width = 72, IsCancel = true };
         save.Click += (_, _) =>
         {
-            Store.WebDavBackup.Save(new Store.WebDavBackup.Config
+            if (!Store.WebDavBackup.TrySave(new Store.WebDavBackup.Config
+                {
+                    Url = urlBox.Text.Trim(), Username = userBox.Text.Trim(), Password = passBox.Password
+                }, out var err))
             {
-                Url = urlBox.Text.Trim(), Username = userBox.Text.Trim(), Password = passBox.Password
-            });
+                MessageBox.Show(win, $"WebDAV 配置或凭据保存失败：{err}", "PixShell", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             win.DialogResult = true;
         };
         row.Children.Add(save); row.Children.Add(cancel);
