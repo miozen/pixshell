@@ -12,6 +12,8 @@ namespace PixShell.Logging
     /// <summary>测试中不写应用日志；生产实现仍由主项目提供。</summary>
     internal static class Log
     {
+        public static void Info(string message, string category) { }
         public static void Warn(string message, string category) { }
+        public static void Error(string message, string category) { }
     }
 }

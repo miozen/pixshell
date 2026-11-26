@@ -19,6 +19,10 @@
 
   <ItemGroup>
     <Compile Include="..\Store\LocalFileTransaction.cs" Link="Store\LocalFileTransaction.cs" />
+    <Compile Include="..\Store\KnownHosts.cs" Link="Store\KnownHosts.cs" />
+    <Compile Include="..\Store\SshHostKeyGuard.cs" Link="Store\SshHostKeyGuard.cs" />
+    <Compile Include="..\Store\WebDavSecurityPolicy.cs" Link="Store\WebDavSecurityPolicy.cs" />
+    <Compile Include="..\Proxy\ProxyPolicy.cs" Link="Proxy\ProxyPolicy.cs" />
     <Compile Include="..\Store\QuickCommands.cs" Link="Store\QuickCommands.cs" />
     <Compile Include="..\Store\ReleaseSelection.cs" Link="Store\ReleaseSelection.cs" />
     <Compile Include="..\Store\CommandSuggestions.cs" Link="Store\CommandSuggestions.cs" />
