@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 正式成为 Windows 开发基线）与 R1-1（`WIN-BUG-029`、`WIN-BUG-001A/B/C`、`WIN-BUG-014A` 自动化与复核通过，待人工项已并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)）；按分层与阶段验收规范提交 `R1-1` 并继续推进 `R1-2`。macOS 保持不动。**
+**Windows 专项缺陷整治：已完成 R0（`.NET 10 LTS` 基线）、R1-1（`WIN-BUG-029`、`WIN-BUG-001A/B/C`、`WIN-BUG-014A`）及 R1-2（`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`），待人工项已并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)；下一步提交 `R1-2` 并推进 `R1-3` 收尾 R1。macOS 保持不动。**
 
 历史原生化路线保留在 [mac/docs/BLUEPRINT.md](../mac/docs/BLUEPRINT.md) 与 [win/BLUEPRINT.md](../win/BLUEPRINT.md)。其 P0–P4 状态是早期计划，不作为当前实时进度；当前阶段以代码、Git 和 [HANDOFF.md](HANDOFF.md) 为准。
 
@@ -40,9 +40,9 @@
 - W0：Windows 实机已通过目录双击、文本文件双击打开编辑窗口、编辑保存回传与超 4 MiB 文件明确提示。上传失败时保留脏内容因未构造安全失败条件，按用户指示暂不测试；不得记录为通过。
 - 在适当的可控环境补测 W0 的“上传失败保留编辑内容”路径；该项暂缓不等于验收通过。
 - R1–R5：按独立切片推进 Windows 缺陷整治：
-  - **R1-1（`WIN-BUG-029`、`WIN-BUG-001A/B/C`、`WIN-BUG-014A`）**：切片级编码、局部安全复核、`PixShell.csproj` 增量编译（`0` 错误 / `48` 警告）与全量 `PixShell.Tests`（`35/35` 通过）已完成，无必须立即阻塞的人工门；实机验收项已汇总至 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) 待 R1 阶段收尾集中验证；
-  - **R1-2（进行中）**：`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`（SFTP 打包 `mv` 失败传播与 `Task.Run`、SCP 解析与退出码校验防绕过 `D-015`、SFTP 直传覆盖替换及 `SftpAdapter` 真实权限）；
-  - **R1 后续**：`WIN-BUG-011A/B`、`015B`、`019A`（本地 JSON/DPAPI 事务同步、跨卷目录移动与命令面板目标隔离）；
+  - **R1-1（`WIN-BUG-029`、`WIN-BUG-001A/B/C`、`WIN-BUG-014A`）**：已合入 `dev`（提交 `34b188b`）；待人工项并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)；
+  - **R1-2（`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`）**：已完成切片编码、`PixShell.csproj` 增量编译（`0` 错误 / `48` 警告）与全量 `PixShell.Tests`（`39/39` 通过），待人工项并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)，待按授权提交推送至 `origin/dev`；
+  - **R1-3（待启动）**：`WIN-BUG-011A/B`、`015B`、`019A`（本地 JSON/DPAPI 事务同步、跨卷目录移动与命令面板目标隔离），完成后执行 R1 阶段级集中验收；
   - R2 优先独立安全切片为 `SSH.NET` 升级与主机身份/代理路径验证；R3 核心稳定性重点为 `WIN-BUG-025/026/027` 终端无响应。
 - OpenWrt/Dropbear 重连问题本轮按外部/服务端或链路共享状态处理并结束客户端修复；未来仅在存在可重复的 PixShell/FinalShell 对照差异时，补齐 Dropbear、conntrack/防火墙和代理路径证据后再重开。
 - W3 已由 D-012 排除；W1、W2、W4 与 W5 的全部已确认实现事项已完成，待按用户约定统一验证。
@@ -85,9 +85,9 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
   - `win/installer/package-win.ps1 -SkipInstaller`：生成 `PixShell-0.2.0-win-x64.zip`；
   - 发布版实机启动与人工冒烟：`PixShell.exe --headless` 监听 `127.0.0.1:47866`（无 token `/v1/health` 返回 `401`，带 token `/v1/health` 返回 `200`、`/v1/app/hosts` 返回 11 条主机、`/v1/app/shutdown` 正常退出）；GUI 版启动存活并完成人工实机冒烟（主窗口、WebView2 终端交互、已有 DPAPI 凭据读取、SSH 连接及重连、SFTP 基础文件操作均无迁移回归）；
   - GitHub Actions `build.yml`（`workflow_dispatch` on `dev`、`bbee132`、`platform: windows`，`build #11` / run `45734819385`）：`Windows win-x64` 全部步骤通过（`Setup .NET 10 SDK`、`Restore`、`Test`、`Publish self-contained win-x64`、`Check packaged web assets`、`Zip publish output`、`Install Inno Setup 6`、`Compile Inno Setup installer`、`Upload Windows artifacts`），上传产物 `PixShell-0.2.0-win-x64`。
-- R1-1（`WIN-BUG-029` + `WIN-BUG-001A/B/C` + `WIN-BUG-014A`）：
-  - 构建：`Release / net10.0-windows / win-x64`（`win/bin/Release/net10.0-windows/win-x64/PixShell.exe`，`--no-restore`）编译成功，`0 个错误`、`48 个警告`（较 R0.2 基线减少 20 条，0 新增警告）；
-  - 测试：`PixShell.Tests.csproj`（`net10.0`，Release，`--no-restore`）全量 xUnit `35/35` 通过（`0` 失败、`0` 跳过，`109 ms`，含新增 13 项 `SftpEditorAndRefreshTests`）。实机交互验收已合并登记至 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)（R1 阶段集中验收）。
+- R1-2（`WIN-BUG-003A/B` + `004A/B` + `009A` + `015A`，当前工作区）：
+  - 构建：`Release / net10.0-windows / win-x64`（`D:\20_Projects\pixshell\win\bin\Release\net10.0-windows\win-x64\PixShell.exe`，`--no-restore`）编译成功，`0 个错误`、`48 个警告`（0 新增警告）；
+  - 测试：`PixShell.Tests.csproj`（`net10.0`，Release，`--no-restore`）全量 xUnit `39/39` 通过（`0` 失败、`0` 跳过，`121 ms`，新增 `SftpScpAndTransferTests` 4 项）；实机验收项已并入 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)。
 
 ## Blockers
 
@@ -95,4 +95,4 @@ F0/W0/W1 的验收标准以 [WINDOWS_FINALSHELL_ALIGNMENT_CONTRACT.md](WINDOWS_F
 
 ## Next Action
 
-提交并推送 `R1-1`（含 `AGENTS.md` 与 `MANUAL_TEST_CHECKLIST.md`）至 `origin/dev`，随后立即实施 `R1-2`（`WIN-BUG-003A/B`、`004A/B`、`009A`、`015A`）。
+提交并推送 `R1-2` 至 `origin/dev`，然后实施 `R1-3`（`WIN-BUG-011A/B`、`015B`、`019A`）并在 `R1` 阶段完成后执行完整 Release 构建与最新程序集中验收。

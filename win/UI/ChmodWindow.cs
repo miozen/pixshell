@@ -32,11 +32,12 @@ public sealed class ChmodWindow
 
     private List<string> _paths = new();
     private uint _initialMode = 0x1ED; // 0755
+    private uint _specialBits;         // 保留 setuid(04000) / setgid(02000) / sticky(01000)
     private Func<string, Task<string>>? _execRunner;
     private Action<string>? _onDone;
     private bool _busy;
 
-    /// <summary>展示：paths 为远端绝对路径；mode 为 POSIX 权限位（可含文件类型高位，取低 9 位）。</summary>
+    /// <summary>展示：paths 为远端绝对路径；mode 为 POSIX 权限位（保留特殊位与低 9 位）。</summary>
     public void Show(
         Window? owner,
         IReadOnlyList<string> paths,
@@ -48,7 +49,8 @@ public sealed class ChmodWindow
         _paths = paths.ToList();
         _execRunner = execRunner;
         _onDone = onDone;
-        _initialMode = mode & 0x1FF; // 0777
+        _specialBits = mode & 0xE00u; // 07000
+        _initialMode = mode & 0x1FFu; // 0777
         if (_window == null) Build(owner);
         else if (owner != null && !ReferenceEquals(_window.Owner, owner)) _window.Owner = owner;
 
@@ -317,7 +319,10 @@ public sealed class ChmodWindow
     private void RefreshOctal()
     {
         if (_octalLabel == null) return;
-        _octalLabel.Text = $"0{Convert.ToString(CurrentMode(), 8).PadLeft(3, '0')}";
+        var mode = CurrentMode();
+        _octalLabel.Text = _specialBits != 0
+            ? $"{Convert.ToString(_specialBits | mode, 8).PadLeft(4, '0')}（保留特殊位）"
+            : $"0{Convert.ToString(mode, 8).PadLeft(3, '0')}";
     }
 
     private async Task ConfirmAsync()
@@ -326,7 +331,10 @@ public sealed class ChmodWindow
         if (_paths.Count == 0) { Hide(); return; }
 
         var mode = CurrentMode();
-        var oct = Convert.ToString(mode, 8).PadLeft(3, '0');
+        var effectiveMode = _specialBits | mode;
+        var oct = _specialBits != 0
+            ? Convert.ToString(effectiveMode, 8).PadLeft(4, '0')
+            : Convert.ToString(mode, 8).PadLeft(3, '0');
         var recursive = _recursiveBox?.IsChecked == true;
         var scope = 0; // 0 both / 1 files / 2 dirs
         if (_scopeFiles?.IsChecked == true) scope = 1;
@@ -338,14 +346,14 @@ public sealed class ChmodWindow
         {
             cmd = scope switch
             {
-                1 => $"find {quoted} -type f -exec chmod {oct} {{}} + 2>&1",
-                2 => $"find {quoted} -type d -exec chmod {oct} {{}} + 2>&1",
-                _ => $"chmod -R {oct} {quoted} 2>&1",
+                1 => $"find {quoted} -type f -exec chmod {oct} {{}} + 2>&1; echo __PIXSHELL_RC:$?",
+                2 => $"find {quoted} -type d -exec chmod {oct} {{}} + 2>&1; echo __PIXSHELL_RC:$?",
+                _ => $"chmod -R {oct} {quoted} 2>&1; echo __PIXSHELL_RC:$?",
             };
         }
         else
         {
-            cmd = $"chmod {oct} {quoted} 2>&1";
+            cmd = $"chmod {oct} {quoted} 2>&1; echo __PIXSHELL_RC:$?";
         }
 
         if (_execRunner == null)
@@ -360,10 +368,10 @@ public sealed class ChmodWindow
         try
         {
             var outp = await _execRunner(cmd).ConfigureAwait(true);
-            var trimmed = (outp ?? "").Trim();
-            var msg = string.IsNullOrEmpty(trimmed)
-                ? $"已设置权限 0{oct}"
-                : "chmod: " + trimmed;
+            var (rc, body) = SftpTransfer.ParseRemoteRC(outp ?? "");
+            var msg = rc == 0
+                ? $"已设置权限 {(_specialBits != 0 ? oct : "0" + oct)}"
+                : (string.IsNullOrWhiteSpace(body) ? $"chmod 失败 (rc={rc})" : "chmod 失败: " + body);
             _onDone?.Invoke(msg);
             Hide();
         }

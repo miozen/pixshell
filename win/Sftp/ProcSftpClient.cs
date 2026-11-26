@@ -137,7 +137,7 @@ public class ProcSftpClient : IDisposable
                         var (_, o2) = ReadSftpStr(r, off); off = o2;
                         var (attrs, o3) = ReadAttrs(r, off); off = o3;
                         if (name != "." && name != "..")
-                            entries.Add(new FsRow { Name = name, IsDir = attrs.isDir, Size = attrs.size, Perms = attrs.permissions });
+                            entries.Add(new FsRow { Name = name, IsDir = attrs.isDir, Size = attrs.size, Perms = attrs.permissions & 0xFFFu, HasPerms = attrs.hasPerms });
                     }
                 }
             }
@@ -304,13 +304,13 @@ public class ProcSftpClient : IDisposable
         var f = ReadU32BE(b, o); o += 4; var a = new FileAttrs();
         if ((f & 1) != 0) { a.size = (long)(((ulong)b[o] << 56) | ((ulong)b[o + 1] << 48) | ((ulong)b[o + 2] << 40) | ((ulong)b[o + 3] << 32) | ((ulong)b[o + 4] << 24) | ((ulong)b[o + 5] << 16) | ((ulong)b[o + 6] << 8) | b[o + 7]); o += 8; }
         if ((f & 2) != 0) o += 8;
-        if ((f & 4) != 0) { a.permissions = ReadU32BE(b, o); o += 4; }
+        if ((f & 4) != 0) { a.permissions = ReadU32BE(b, o); a.hasPerms = true; o += 4; }
         if ((f & 8) != 0) o += 8;
         if ((f & 0x80000000) != 0) { int cnt = (int)ReadU32BE(b, o); o += 4; for (int i = 0; i < cnt; i++) { var (_, oo) = ReadSftpStr(b, o); o = oo; (_, oo) = ReadSftpStr(b, o); o = oo; } }
         return (a, o);
     }
 
-    private struct FileAttrs { public long size; public uint permissions; public bool isDir => (permissions & 0x4000) != 0; }
+    private struct FileAttrs { public long size; public uint permissions; public bool hasPerms; public bool isDir => (permissions & 0x4000) != 0; }
 
     // === Writer ===
     private sealed class SftpWriter

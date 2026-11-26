@@ -51,12 +51,18 @@ public static class SftpTransfer
         return $"tar -xzf {arc} -C {dst} 2>&1; rc=$?; rm -f {arc}; echo __PIXSHELL_RC:$rc";
     }
 
-    /// <summary>远端打包上传的安全落盘：先解压至唯一临时目录，再仅移动不存在冲突的顶层条目。</summary>
+    /// <summary>远端打包上传的安全落盘：先解压至唯一临时目录，再仅移动不存在冲突的顶层条目，任意 mv 失败立即置非 0 RC。</summary>
     public static string ExtractStagedCommand(string archive, string remoteDir, string stagingDir)
     {
         var arc = Quote(archive); var dst = Quote(remoteDir); var stage = Quote(stagingDir);
         return $"mkdir -p {stage}; tar -xzf {arc} -C {stage} 2>&1; rc=$?; " +
-               $"if [ $rc -eq 0 ]; then for p in {stage}/* {stage}/.[!.]*; do [ -e \"$p\" ] || continue; n=$(basename \"$p\"); if [ -e {dst}/\"$n\" ]; then echo \"SKIP:$n\"; else mv \"$p\" {dst}/; fi; done; fi; " +
+               $"if [ $rc -eq 0 ]; then " +
+               $"for p in {stage}/* {stage}/.[!.]* {stage}/..?*; do " +
+               $"[ -e \"$p\" ] || [ -L \"$p\" ] || continue; " +
+               $"n=$(basename \"$p\"); " +
+               $"if [ -e {dst}/\"$n\" ] || [ -L {dst}/\"$n\" ]; then echo \"SKIP:$n\"; " +
+               $"else mv_err=$(mv \"$p\" {dst}/ 2>&1); mrc=$?; if [ $mrc -ne 0 ]; then rc=$mrc; echo \"MV_ERR:$n:$mv_err\"; break; fi; fi; " +
+               $"done; fi; " +
                $"rm -rf {stage}; rm -f {arc}; echo __PIXSHELL_RC:$rc";
     }
 

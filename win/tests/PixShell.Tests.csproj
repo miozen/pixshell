@@ -26,5 +26,7 @@
     <Compile Include="..\Sftp\RemoteDirectoryRefreshCoordinator.cs" Link="Sftp\RemoteDirectoryRefreshCoordinator.cs" />
     <Compile Include="..\Sftp\RemoteTextEncoding.cs" Link="Sftp\RemoteTextEncoding.cs" />
     <Compile Include="..\Sftp\RemoteFileOverwrite.cs" Link="Sftp\RemoteFileOverwrite.cs" />
+    <Compile Include="..\Sftp\SftpTransfer.cs" Link="Sftp\SftpTransfer.cs" />
+    <Compile Include="..\Sftp\ScpLsParser.cs" Link="Sftp\ScpLsParser.cs" />
   </ItemGroup>
 </Project>

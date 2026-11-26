@@ -76,9 +76,7 @@ public static class RemoteFileOverwrite
 
         var id = Guid.NewGuid().ToString("N");
         var tempPath = $"{remotePath}.pixshell.tmp.{id}";
-        var backupPath = $"{remotePath}.pixshell.bak.{id}";
         var tempCreatedAttempted = false;
-        var movedOriginalToBackup = false;
 
         try
         {
@@ -100,17 +98,58 @@ public static class RemoteFileOverwrite
                     throw new IOException($"临时文件校验失败：期望 {bytes.Length} 字节，实际 {remoteSize} 字节");
             }
 
-            if (originalMode.HasValue)
+            ReplaceUploadedTemp(store, tempPath, remotePath, targetExists, originalMode, cancellationToken);
+            tempCreatedAttempted = false;
+        }
+        finally
+        {
+            if (tempCreatedAttempted && store.Connected)
             {
-                var modeSet = store.TrySetPosixMode(tempPath, originalMode.Value);
-                var hadRestrictedPermissions = (originalMode.Value & 0x03Fu) == 0;
-                if (!modeSet && hadRestrictedPermissions)
-                {
-                    throw new IOException(
-                        $"无法恢复原文件受限权限 {Convert.ToString(originalMode.Value, 8)}，已中止替换以免权限放宽");
-                }
+                try { store.Delete(tempPath, isDir: false); } catch { }
             }
+        }
+    }
 
+    /// <summary>
+    /// 将已上传完毕的远端临时文件安全替换到最终目标（用于直传上传覆盖与编辑器保存共用）。
+    /// 支持单步原子覆写则直接 Rename；否则执行带回滚保护的备份交换，绝不提前删除原文件。
+    /// </summary>
+    public static void ReplaceUploadedTemp(
+        IAtomicRemoteFileStore store,
+        string tempPath,
+        string remotePath,
+        bool? targetExistsHint = null,
+        uint? originalModeHint = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(tempPath))
+            throw new ArgumentException("临时路径不能为空", nameof(tempPath));
+        if (string.IsNullOrWhiteSpace(remotePath))
+            throw new ArgumentException("远端路径不能为空", nameof(remotePath));
+        if (!store.Connected)
+            throw new IOException("远端未连接");
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var targetExists = targetExistsHint ?? store.Exists(remotePath);
+        uint? originalMode = originalModeHint ?? (targetExists ? store.TryGetPosixMode(remotePath) : null);
+
+        if (originalMode.HasValue)
+        {
+            var modeSet = store.TrySetPosixMode(tempPath, originalMode.Value);
+            var hadRestrictedPermissions = (originalMode.Value & 0x03Fu) == 0;
+            if (!modeSet && hadRestrictedPermissions)
+            {
+                throw new IOException(
+                    $"无法恢复原文件受限权限 {Convert.ToString(originalMode.Value, 8)}，已中止替换以免权限放宽");
+            }
+        }
+
+        var backupPath = $"{remotePath}.pixshell.bak.{Guid.NewGuid().ToString("N")}";
+        var movedOriginalToBackup = false;
+
+        try
+        {
             if (targetExists && !store.SupportsAtomicOverwriteRename)
             {
                 store.Rename(remotePath, backupPath);
@@ -118,7 +157,6 @@ public static class RemoteFileOverwrite
             }
 
             store.Rename(tempPath, remotePath);
-            tempCreatedAttempted = false;
 
             if (movedOriginalToBackup)
             {
@@ -142,13 +180,6 @@ public static class RemoteFileOverwrite
                 }
             }
             throw;
-        }
-        finally
-        {
-            if (tempCreatedAttempted && store.Connected)
-            {
-                try { store.Delete(tempPath, isDir: false); } catch { }
-            }
         }
     }
 }

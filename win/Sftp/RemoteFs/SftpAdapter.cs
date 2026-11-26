@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using PixShell.Logging;
 using Renci.SshNet;
+using Renci.SshNet.Sftp;
 
 namespace PixShell.Sftp.RemoteFs;
 
@@ -31,14 +32,19 @@ internal class SftpAdapter : IRemoteFs
         if (!Connected) return new();
         return _sftp.ListDirectory(path)
             .Where(f => f.Name != "." && f.Name != "..")
-            .Select(f => new FsRow
+            .Select(f =>
             {
-                Name = f.Name,
-                IsDir = f.IsDirectory,
-                IsLink = f.IsSymbolicLink,
-                Size = f.IsDirectory ? 0 : f.Length,
-                Mtime = f.LastWriteTime,
-                Perms = (uint)(f.IsDirectory ? 0x41ED : 0x81A4),
+                var mode = ExtractPosixMode(f.Attributes);
+                return new FsRow
+                {
+                    Name = f.Name,
+                    IsDir = f.IsDirectory,
+                    IsLink = f.IsSymbolicLink,
+                    Size = f.IsDirectory ? 0 : f.Length,
+                    Mtime = f.LastWriteTime,
+                    Perms = mode ?? 0u,
+                    HasPerms = mode.HasValue,
+                };
             })
             .OrderByDescending(r => r.IsDir)
             .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
@@ -96,24 +102,31 @@ internal class SftpAdapter : IRemoteFs
     public void Delete(string path, bool isDir) { if (isDir) _sftp.DeleteDirectory(path); else _sftp.DeleteFile(path); }
     public void Rename(string from, string to) => _sftp.RenameFile(from, to);
 
-    /// <summary>读取远端文件 POSIX 低 9 位权限（用于编辑器覆写时保留 0600/0755 等权限）。</summary>
+    /// <summary>提取远端条目完整 12 位 POSIX 权限（含 setuid/setgid/sticky 与 rwxrwxrwx）。</summary>
+    internal static uint? ExtractPosixMode(SftpFileAttributes? a)
+    {
+        if (a == null) return null;
+        uint m = 0;
+        if (a.IsUIDBitSet) m |= 0x800;
+        if (a.IsGroupIDBitSet) m |= 0x400;
+        if (a.IsStickyBitSet) m |= 0x200;
+        if (a.OwnerCanRead) m |= 0x100;
+        if (a.OwnerCanWrite) m |= 0x80;
+        if (a.OwnerCanExecute) m |= 0x40;
+        if (a.GroupCanRead) m |= 0x20;
+        if (a.GroupCanWrite) m |= 0x10;
+        if (a.GroupCanExecute) m |= 0x8;
+        if (a.OthersCanRead) m |= 0x4;
+        if (a.OthersCanWrite) m |= 0x2;
+        if (a.OthersCanExecute) m |= 0x1;
+        return m;
+    }
+
     internal uint? TryGetPosixMode(string path)
     {
         try
         {
-            var a = _sftp.GetAttributes(path);
-            if (a == null) return null;
-            uint m = 0;
-            if (a.OwnerCanRead) m |= 0x100;
-            if (a.OwnerCanWrite) m |= 0x80;
-            if (a.OwnerCanExecute) m |= 0x40;
-            if (a.GroupCanRead) m |= 0x20;
-            if (a.GroupCanWrite) m |= 0x10;
-            if (a.GroupCanExecute) m |= 0x8;
-            if (a.OthersCanRead) m |= 0x4;
-            if (a.OthersCanWrite) m |= 0x2;
-            if (a.OthersCanExecute) m |= 0x1;
-            return m;
+            return ExtractPosixMode(_sftp.GetAttributes(path));
         }
         catch
         {
@@ -125,7 +138,7 @@ internal class SftpAdapter : IRemoteFs
     {
         try
         {
-            _sftp.ChangePermissions(path, (short)(mode & 0x1FFu));
+            _sftp.ChangePermissions(path, (short)(mode & 0xFFFu));
             return true;
         }
         catch

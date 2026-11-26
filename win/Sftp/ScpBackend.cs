@@ -32,52 +32,49 @@ public class ScpBackend
 
     public List<FsRow> ListDirectory(string path)
     {
-        var entries = new List<FsRow>();
-        try
+        var raw = _session.ExecAsync($"LC_ALL=C ls -la {EscapeArg(path)} 2>&1; echo __PIXSHELL_RC:$?").GetAwaiter().GetResult();
+        var (rc, body) = SftpTransfer.ParseRemoteRC(raw);
+        if (rc != 0)
         {
-            var raw = _session.ExecAsync($"ls -la {EscapeArg(path)} 2>&1").GetAwaiter().GetResult();
-            foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            var reason = string.IsNullOrWhiteSpace(body) ? $"ls exited with {rc}" : body;
+            Log.Warn($"SCP list failed (rc={rc}): {reason}", "sftp");
+            throw new IOException($"SCP 列目录失败 (rc={rc}): {reason}");
+        }
+
+        return ScpLsParser.ParseListing(body)
+            .Select(e => new FsRow
             {
-                if (line.StartsWith("total ")) continue;
-                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 9) continue;
-                var perms = parts[0];
-                var isDir = perms.StartsWith("d");
-                var isLink = perms.StartsWith("l");
-                var name = parts[^1];
-                if (name == "." || name == "..") continue;
-                // Handle "name -> target" for symlinks
-                if (isLink && name.Contains(" -> "))
-                {
-                    var arrow = name.IndexOf(" -> ");
-                    if (arrow > 0) name = name[..arrow];
-                }
-                long size = 0;
-                long.TryParse(parts[^4], out size);
-                entries.Add(new FsRow { Name = name, IsDir = isDir, IsLink = isLink, Size = size });
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"SCP list failed: {ex.Message}", "sftp");
-        }
-        return entries;
+                Name = e.Name,
+                IsDir = e.IsDir,
+                IsLink = e.IsLink,
+                Size = e.Size,
+                Perms = e.Perms,
+                HasPerms = e.HasPerms,
+            })
+            .OrderByDescending(r => r.IsDir)
+            .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     // ==================== Upload / Download ====================
 
     public bool Exists(string path)
     {
-        var name = Path.GetFileName(path);
-        var parent = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "/";
-        return ListDirectory(string.IsNullOrEmpty(parent) ? "/" : parent).Any(x => x.Name == name);
+        var raw = _session.ExecAsync(
+            $"if [ -e {EscapeArg(path)} ] || [ -L {EscapeArg(path)} ]; then echo __PIXSHELL_EXISTS__; else echo __PIXSHELL_MISSING__; fi; echo __PIXSHELL_RC:$?")
+            .GetAwaiter().GetResult();
+        var (rc, body) = SftpTransfer.ParseRemoteRC(raw);
+        if (rc != 0)
+            throw new IOException($"SCP 检查路径失败 (rc={rc}): {body}");
+        return body.Contains("__PIXSHELL_EXISTS__", StringComparison.Ordinal);
     }
 
     public long GetFileSize(string path)
     {
         var name = Path.GetFileName(path);
         var parent = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "/";
-        return ListDirectory(string.IsNullOrEmpty(parent) ? "/" : parent).FirstOrDefault(x => x.Name == name)?.Size ?? 0;
+        return ListDirectory(string.IsNullOrEmpty(parent) ? "/" : parent)
+            .FirstOrDefault(x => x.Name == name)?.Size ?? -1;
     }
 
     public void UploadFile(string localPath, string remotePath)
@@ -115,20 +112,23 @@ public class ScpBackend
         throw new IOException("远端创建文件失败（权限不足或服务器不支持）");
     }
 
-    public void MakeDirectory(string path)
-    {
-        _session.ExecAsync($"mkdir -p {EscapeArg(path)}").GetAwaiter().GetResult();
-    }
+    public void MakeDirectory(string path) => RunShellChecked($"mkdir -p {EscapeArg(path)}", "创建目录");
 
     public void Delete(string path, bool isDir)
     {
         var cmd = isDir ? $"rm -rf {EscapeArg(path)}" : $"rm -f {EscapeArg(path)}";
-        _session.ExecAsync(cmd).GetAwaiter().GetResult();
+        RunShellChecked(cmd, "删除");
     }
 
-    public void Rename(string from, string to)
+    public void Rename(string from, string to) =>
+        RunShellChecked($"mv {EscapeArg(from)} {EscapeArg(to)}", "重命名");
+
+    private void RunShellChecked(string command, string action)
     {
-        _session.ExecAsync($"mv {EscapeArg(from)} {EscapeArg(to)}").GetAwaiter().GetResult();
+        var raw = _session.ExecAsync($"{command} 2>&1; echo __PIXSHELL_RC:$?").GetAwaiter().GetResult();
+        var (rc, body) = SftpTransfer.ParseRemoteRC(raw);
+        if (rc != 0)
+            throw new IOException(string.IsNullOrWhiteSpace(body) ? $"SCP {action}失败 (rc={rc})" : $"SCP {action}失败 (rc={rc}): {body}");
     }
 
     public void Close()

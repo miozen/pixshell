@@ -915,7 +915,11 @@ public partial class SftpPanel : UserControl
                 input.Position = offset;
                 using var progress = new ProgressStream(input, n => TransferTasks.Report(taskId, n), offset);
                 fs.UploadFile(progress, temp, offset, cancellation?.Token ?? default);
-                fs.Rename(temp, remote);
+                RemoteFileOverwrite.ReplaceUploadedTemp(
+                    new RemoteFsAtomicStore(fs),
+                    temp,
+                    remote,
+                    cancellationToken: cancellation?.Token ?? default);
             });
             TransferTasks.Finish(taskId, true); return true;
         }
@@ -951,9 +955,12 @@ public partial class SftpPanel : UserControl
         try
         {
             StatusLabel.Text = "上传压缩包 …";
-            using (var localFs = File.OpenRead(localArchive))
-            using (var progress = new ProgressStream(localFs, n => TransferTasks.Report(taskId, n)))
+            await Task.Run(() =>
+            {
+                using var localFs = File.OpenRead(localArchive);
+                using var progress = new ProgressStream(localFs, n => TransferTasks.Report(taskId, n));
                 fs.UploadFile(progress, remoteArchive, cancellationToken: cancellation.Token);
+            }, cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException) { TransferTasks.FinishCancelled(taskId, "已取消；远端临时包将尽力清理"); _ = ExecRunner($"rm -f {SftpTransfer.Quote(remoteArchive)}"); TryDelete(localArchive); StatusLabel.Text = "打包上传已取消"; return; }
@@ -1127,7 +1134,11 @@ public partial class SftpPanel : UserControl
         try
         {
             Directory.CreateDirectory(destDir);
-            using (var localFs = File.Create(localArchive)) fs.DownloadFile(remoteArchive, localFs, cancellationToken: cancellation.Token);
+            await Task.Run(() =>
+            {
+                using var localFs = File.Create(localArchive);
+                fs.DownloadFile(remoteArchive, localFs, cancellationToken: cancellation.Token);
+            }, cancellation.Token);
         }
         catch (OperationCanceledException) { TransferTasks.FinishCancelled(taskId, "已取消；远端临时包将尽力清理"); _ = ExecRunner($"rm -f {SftpTransfer.Quote(remoteArchive)}"); TryDelete(localArchive); StatusLabel.Text = "打包下载已取消"; return; }
         catch (Exception ex)
@@ -1416,8 +1427,10 @@ public partial class SftpPanel : UserControl
         }
         var snap = CaptureOperationSnapshot();
         var paths = rows.Select(r => JoinRemote(snap.Directory, r.Name)).ToList();
-        // 多项时以第一项权限为初值（勾选可再改）；未知回落 0755
-        var mode = rows[0].Perms != 0 ? rows[0].Perms : 0x1EDu; // 0755
+        // 优先使用远端真实权限（包含 0000）；仅未知属性时按文件 0644 / 目录 0755 回落
+        var mode = rows[0].HasPerms
+            ? rows[0].Perms
+            : (rows[0].IsDir ? 0x1EDu : 0x1A4u);
         _chmodWindow ??= new UI.ChmodWindow();
         var owner = Window.GetWindow(this);
         _chmodWindow.Show(
@@ -1431,32 +1444,6 @@ public partial class SftpPanel : UserControl
                 StatusLabel.Text = msg;
                 _ = LoadRemoteDetail(snap.Directory);
             });
-    }
-
-    /// <summary>从 SSH.NET 列表项取 POSIX 低 9 位；取不到返回 0（调用方回落 0755）。</summary>
-    private static uint ReadPerms(ISftpFile f)
-    {
-        try
-        {
-            // SSH.NET 2024：SftpFile.Attributes 带 Owner/Group/Others CanRead|Write|Execute
-            if (f is SftpFile sf && sf.Attributes != null)
-            {
-                var a = sf.Attributes;
-                uint m = 0;
-                if (a.OwnerCanRead) m |= 0x100;      // 0400
-                if (a.OwnerCanWrite) m |= 0x80;      // 0200
-                if (a.OwnerCanExecute) m |= 0x40;    // 0100
-                if (a.GroupCanRead) m |= 0x20;       // 0040
-                if (a.GroupCanWrite) m |= 0x10;      // 0020
-                if (a.GroupCanExecute) m |= 0x8;     // 0010
-                if (a.OthersCanRead) m |= 0x4;       // 0004
-                if (a.OthersCanWrite) m |= 0x2;      // 0002
-                if (a.OthersCanExecute) m |= 0x1;    // 0001
-                return m;
-            }
-        }
-        catch { /* 属性缺失/不支持时忽略 */ }
-        return 0;
     }
 
     /// <summary>右键「✓ 打包传输」：切换开关并持久化（对齐 mac ctxTogglePackTransfer）。</summary>
@@ -1513,6 +1500,7 @@ public sealed class FsRow
     public long Size { get; set; }
     public DateTime Mtime { get; set; }
     public uint Perms { get; set; }
+    public bool HasPerms { get; set; }
     public string Icon => IsDir ? "📁" : (IsLink ? "🔗" : "📄");
     public string SizeText => IsDir ? "" : HumanSize(Size);
     public string TypeText => IsDir ? "目录" : (IsLink ? "链接" : "文件");
