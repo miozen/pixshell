@@ -6,6 +6,7 @@ namespace PixShell.Sftp;
 public sealed class SftpConnectionEpoch
 {
     private int _value;
+    public int Current => Volatile.Read(ref _value);
     public int Advance() => Interlocked.Increment(ref _value);
     public bool IsCurrent(int value) => Volatile.Read(ref _value) == value;
 }

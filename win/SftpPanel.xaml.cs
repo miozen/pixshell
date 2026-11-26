@@ -34,8 +34,8 @@ public partial class SftpPanel : UserControl
     }
 
     public event Action<string>? OnPathChange;
-    /// <summary>双击远端文件（非目录）→ 下载到临时文件成功 → (远端路径, 文本内容) 交给编辑器。</summary>
-    public event Action<string, string>? OnOpenFile;
+    /// <summary>双击远端文件（非目录）→ 安全读取并保留编码 → 绑定会话与后端上下文交给编辑器。</summary>
+    public event Action<RemoteEditDocument>? OnOpenFile;
     /// <summary>右键「插入命令框」→ 把选中项路径交给命令框。</summary>
     public event Action<string>? OnInsertToCommand;
 
@@ -76,13 +76,13 @@ public partial class SftpPanel : UserControl
     /// <summary>外部（命令框 cd）驱动切目录：不触发 OnUserNavigate。</summary>
     public void Navigate(string path)
     {
-        LoadRemoteDetail(string.IsNullOrEmpty(path) ? "/" : path);
+        _ = LoadRemoteDetail(string.IsNullOrEmpty(path) ? "/" : path);
     }
 
     /// <summary>用户在面板里主动进入某目录：刷新 + 反向通知命令框同步 cd。</summary>
     private void EnterDirectory(string path)
     {
-        LoadRemoteDetail(path);
+        _ = LoadRemoteDetail(path);
         OnUserNavigate?.Invoke(_remoteDir);
     }
 
@@ -90,6 +90,7 @@ public partial class SftpPanel : UserControl
     private IRemoteFs? _remoteFs;
     private string _remoteDir = "/";
     private List<FsRow> _remoteEntries = new();
+    private readonly RemoteDirectoryRefreshCoordinator _refreshCoordinator = new();
 
     // 打开编辑器前的下载与 SSH/SFTP 生命周期必须串起来。否则用户双击文件后立即
     // 断开，旧下载仍会占着独立 SFTP 连接，与下一次 SSH 握手并发（Dropbear 尤其敏感）。
@@ -131,8 +132,10 @@ public partial class SftpPanel : UserControl
     public void SetSession(TerminalSession? session)
     {
         if (ReferenceEquals(_session, session)) return;
+        _refreshCoordinator.Invalidate();
         _ = CleanupAsync();
         _session = session;
+        _remoteDir = "/";
         _remoteEntries.Clear(); RemoteList.ItemsSource = null;
         RemoteTree.Items.Clear();
         OnPathChange?.Invoke("远端未连接");
@@ -177,7 +180,7 @@ public partial class SftpPanel : UserControl
                 _remoteFs = fs;
                 _remoteDir = fs.WorkingDirectory;
                 BuildTreeRoot();
-                LoadRemoteDetail(_remoteDir);
+                _ = LoadRemoteDetail(_remoteDir);
                 StatusLabel.Text = $"{label} 已连接";
             });
         }
@@ -207,11 +210,21 @@ public partial class SftpPanel : UserControl
     private void DisconnectSftp()
     {
         var gen = _connectEpoch.Advance();
+        _refreshCoordinator.Invalidate();
         var fs = _remoteFs;
         _remoteFs = null;
+        _remoteDir = "/";
         try { fs?.Dispose(); } catch { }
         if (fs != null) Log.Info($"SFTP 已释放 gen={gen}", "sftp");
-        Dispatcher.InvokeAsync(() => { if (_connectEpoch.IsCurrent(gen)) { RemoteTree.Items.Clear(); RemoteList.Items.Clear(); } });
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (_connectEpoch.IsCurrent(gen))
+            {
+                _remoteEntries.Clear();
+                RemoteList.ItemsSource = null;
+                RemoteTree.Items.Clear();
+            }
+        });
     }
 
     /// <summary>
@@ -302,6 +315,7 @@ public partial class SftpPanel : UserControl
         var fs = _remoteFs;
         if (fs is not { Connected: true } || !fs.SupportsTree) { item.Items.Clear(); return; }
         var path = node.Path;
+        var connectGen = _connectEpoch.Current;
         System.Threading.Tasks.Task.Run(() =>
         {
             List<FsRow>? dirs = null;
@@ -309,6 +323,7 @@ public partial class SftpPanel : UserControl
             catch { }
             Dispatcher.BeginInvoke(new Action(() =>
             {
+                if (!_connectEpoch.IsCurrent(connectGen) || !ReferenceEquals(_remoteFs, fs)) return;
                 item.Items.Clear();
                 foreach (var d in dirs ?? new())
                     item.Items.Add(MakeTreeItem(new SftpNode(JoinRemote(path, d.Name), d.Name)));
@@ -328,17 +343,70 @@ public partial class SftpPanel : UserControl
     private async Task LoadRemoteDetail(string dir)
     {
         var fs = _remoteFs;
-        if (fs is not { Connected: true }) return;
-        OnPathChange?.Invoke(dir);
-        _remoteDir = dir;
-        var entries = await System.Threading.Tasks.Task.Run(() =>
+        var session = _session;
+        if (fs is not { Connected: true } || session == null) return;
+
+        var targetDir = string.IsNullOrEmpty(dir) ? "/" : dir;
+        var previousDir = _remoteDir;
+        var connectGen = _connectEpoch.Current;
+        var ticket = _refreshCoordinator.Begin(targetDir, connectGen, out var ct);
+
+        _remoteDir = targetDir;
+        OnPathChange?.Invoke(targetDir);
+        if (!string.Equals(previousDir, targetDir, StringComparison.Ordinal))
         {
-            try { return fs.ListDirectory(dir); }
-            catch (Exception ex) { Dispatcher.InvokeAsync(() => StatusLabel.Text = "列目录失败: " + ex.Message); return new List<FsRow>(); }
-        });
+            RemoteList.ItemsSource = null;
+            _remoteEntries = new List<FsRow>();
+        }
+
+        List<FsRow>? entries = null;
+        Exception? failure = null;
+        try
+        {
+            await Task.Run(() =>
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    entries = fs.ListDirectory(targetDir);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+            }, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (ct.IsCancellationRequested) return;
+        if (failure != null)
+        {
+            if (_refreshCoordinator.CanShowFailure(ticket, _connectEpoch.Current)
+                && ReferenceEquals(_remoteFs, fs)
+                && ReferenceEquals(_session, session))
+            {
+                StatusLabel.Text = "列目录失败: " + failure.Message;
+                RemoteList.ItemsSource = null;
+                _remoteEntries = new List<FsRow>();
+            }
+            return;
+        }
+
+        if (!_refreshCoordinator.CanApply(
+                ticket,
+                _connectEpoch.Current,
+                ReferenceEquals(_remoteFs, fs) && ReferenceEquals(_session, session) && fs.Connected))
+        {
+            return;
+        }
+
+        var finalEntries = entries ?? new List<FsRow>();
         RemoteList.ItemsSource = null;
-        RemoteList.ItemsSource = entries;
-        _remoteEntries = entries;
+        RemoteList.ItemsSource = finalEntries;
+        _remoteEntries = finalEntries;
     }
 
     private void RemoteList_DoubleClick(object sender, MouseButtonEventArgs e)
@@ -349,8 +417,52 @@ public partial class SftpPanel : UserControl
     }
 
     // =====================================================================
-    // 内置编辑器：双击文件 / 右键"打开" → 下载到临时文件 → 交给 EditorWindow
+    // 内置编辑器：双击文件 / 右键"打开" → 安全读取并绑定上下文 → 交给 EditorWindow
     // =====================================================================
+    private const int MaxEditorFileBytes = 4 * 1024 * 1024;
+
+    private sealed class BoundedMemoryStream : MemoryStream
+    {
+        private readonly int _maxBytes;
+        public BoundedMemoryStream(int maxBytes) => _maxBytes = maxBytes;
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            EnsureCapacityWithinLimit(count);
+            base.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            EnsureCapacityWithinLimit(buffer.Length);
+            base.Write(buffer);
+        }
+
+        public override void WriteByte(byte value)
+        {
+            EnsureCapacityWithinLimit(1);
+            base.WriteByte(value);
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            EnsureCapacityWithinLimit(count);
+            return base.WriteAsync(buffer, offset, count, cancellationToken);
+        }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            EnsureCapacityWithinLimit(buffer.Length);
+            return base.WriteAsync(buffer, cancellationToken);
+        }
+
+        private void EnsureCapacityWithinLimit(int extra)
+        {
+            if (Length + extra > _maxBytes)
+                throw new InvalidDataException($"文件过大（>{_maxBytes / (1024 * 1024)}MB），请先下载");
+        }
+    }
+
     private void BeginOpenRemoteFileForEdit(FsRow r)
     {
         Task task;
@@ -365,32 +477,54 @@ public partial class SftpPanel : UserControl
     {
         var fs = _remoteFs;
         var session = _session;
-        if (fs is not { Connected: true }) return;
-        if (r.Size > 4 * 1024 * 1024) { StatusLabel.Text = "文件过大（>4MB），请先下载"; return; }
-        var remote = JoinRemote(_remoteDir, r.Name);
-        var tmp = Path.Combine(Path.GetTempPath(), "pixshell_edit_" + r.Name);
+        var targetDir = _remoteDir;
+        var connectGen = _connectEpoch.Current;
+        if (fs is not { Connected: true } || session == null) return;
+        if (r.Size > MaxEditorFileBytes) { StatusLabel.Text = "文件过大（>4MB），请先下载"; return; }
+        var remote = JoinRemote(targetDir, r.Name);
         StatusLabel.Text = $"打开 {r.Name} …";
         try
         {
             Log.Info($"读取远端文件开始 {remote}", "editor");
-            using (var localFs = File.Create(tmp))
+            byte[] rawBytes;
+            using (var ms = new BoundedMemoryStream(MaxEditorFileBytes))
             {
                 if (fs is SftpAdapter sftp)
-                    await sftp.DownloadFileAsync(remote, localFs, cancellationToken);
+                    await sftp.DownloadFileAsync(remote, ms, cancellationToken);
                 else
-                    await Task.Run(() => fs.DownloadFile(remote, localFs, cancellationToken: cancellationToken), cancellationToken);
+                    await Task.Run(() => fs.DownloadFile(remote, ms, cancellationToken: cancellationToken), cancellationToken);
+                rawBytes = ms.ToArray();
             }
             cancellationToken.ThrowIfCancellationRequested();
-            Log.Info($"读取远端文件完成 {remote}", "editor");
-            if (cancellationToken.IsCancellationRequested || !ReferenceEquals(_remoteFs, fs) || !ReferenceEquals(_session, session)) return;
-            string text;
-            try { text = File.ReadAllText(tmp, Encoding.UTF8); }
-            catch { text = File.ReadAllText(tmp, Encoding.Latin1); }
+            Log.Info($"读取远端文件完成 {remote}（{rawBytes.Length} 字节）", "editor");
+            if (cancellationToken.IsCancellationRequested
+                || !ReferenceEquals(_remoteFs, fs)
+                || !ReferenceEquals(_session, session)
+                || !_connectEpoch.IsCurrent(connectGen)
+                || !fs.Connected)
+            {
+                return;
+            }
+
+            var decoded = RemoteTextEncoding.Decode(rawBytes, MaxEditorFileBytes);
             cancellationToken.ThrowIfCancellationRequested();
-            if (!ReferenceEquals(_remoteFs, fs) || !ReferenceEquals(_session, session)) return;
+            if (!ReferenceEquals(_remoteFs, fs)
+                || !ReferenceEquals(_session, session)
+                || !_connectEpoch.IsCurrent(connectGen)
+                || !fs.Connected)
+            {
+                return;
+            }
+
             StatusLabel.Text = "";
-            Log.Info($"打开远端文件 {remote}（{text.Length} 字符）", "editor");
-            OnOpenFile?.Invoke(remote, text);
+            Log.Info($"打开远端文件 {remote}（{decoded.Text.Length} 字符，{decoded.Metadata.Name}）", "editor");
+            OnOpenFile?.Invoke(new RemoteEditDocument(
+                remote,
+                decoded.Text,
+                session,
+                fs,
+                decoded.Metadata,
+                FormatSessionLabel(session)));
         }
         catch (OperationCanceledException)
         {
@@ -405,33 +539,53 @@ public partial class SftpPanel : UserControl
             Log.Error($"打开远端文件失败 {remote}: {ex.Message}", "editor");
             StatusLabel.Text = "打开失败: " + ex.Message;
         }
-        finally
+    }
+
+    public async Task SaveRemoteFile(RemoteEditDocument doc, string text, Action<string?> done)
+    {
+        var (targetFs, guardError) = RemoteEditTargetGuard.ResolveSaveTarget(
+            doc.Session,
+            doc.RemoteFs,
+            doc.Session is { Connected: true },
+            doc.RemoteFs.Connected,
+            _session,
+            _remoteFs,
+            _remoteFs is { Connected: true },
+            doc.SessionLabel);
+        if (guardError != null || targetFs == null)
         {
-            try { File.Delete(tmp); } catch { }
+            var reason = guardError ?? "远端未连接";
+            Log.Warn($"阻止跨会话/失效保存 {doc.RemotePath}: {reason}", "editor");
+            done(reason);
+            return;
+        }
+
+        try
+        {
+            var encodedBytes = RemoteTextEncoding.Encode(text, doc.EncodingInfo);
+            var store = new RemoteFsAtomicStore(targetFs);
+            await Task.Run(() => RemoteFileOverwrite.SaveBytes(store, doc.RemotePath, encodedBytes));
+            done(null);
+
+            if (ReferenceEquals(_session, doc.Session)
+                && ReferenceEquals(_remoteFs, targetFs)
+                && string.Equals(RemoteParent(doc.RemotePath), _remoteDir, StringComparison.Ordinal))
+            {
+                _ = LoadRemoteDetail(_remoteDir);
+            }
+        }
+        catch (Exception ex)
+        {
+            done(ex.Message);
         }
     }
 
-    public async Task SaveRemoteFile(string remotePath, string text, Action<string?> done)
+    private static string FormatSessionLabel(TerminalSession? session)
     {
-        var fs = _remoteFs;
-        if (fs is not { Connected: true }) { done("远端未连接"); return; }
-        var tmp = "";
-        try
-        {
-            tmp = Path.Combine(Path.GetTempPath(), "pixshell_save_" + Path.GetFileName(remotePath));
-            await Task.Run(() =>
-            {
-                File.WriteAllText(tmp, text, new UTF8Encoding(false));
-                using (var localFs = File.OpenRead(tmp)) fs.UploadFile(localFs, remotePath);
-            });
-            done(null);
-            if (remotePath.StartsWith(_remoteDir)) LoadRemoteDetail(_remoteDir);
-        }
-        catch (Exception ex) { done(ex.Message); }
-        finally
-        {
-            if (!string.IsNullOrEmpty(tmp)) try { File.Delete(tmp); } catch { }
-        }
+        if (session == null) return "未知会话";
+        var display = session.SourceHost?.Display;
+        if (!string.IsNullOrWhiteSpace(display)) return display;
+        return $"{session.HostUser()}@{session.HostName}:{session.HostPort()}";
     }
 
     // =====================================================================
@@ -446,19 +600,38 @@ public partial class SftpPanel : UserControl
     public void Refresh()
     {
         if (!_localHidden) LoadLocal(_localDir);
-        LoadRemoteDetail(_remoteDir);
+        _ = LoadRemoteDetail(_remoteDir);
     }
+
+    private RemoteDirectoryRefreshCoordinator.OperationSnapshot CaptureOperationSnapshot() =>
+        new(_session, _remoteFs, _connectEpoch.Current, _remoteDir);
+
+    private bool IsSnapshotStillActive(RemoteDirectoryRefreshCoordinator.OperationSnapshot snap) =>
+        RemoteDirectoryRefreshCoordinator.CanExecuteOperation(
+            snap,
+            _session,
+            _remoteFs,
+            _connectEpoch.Current,
+            _remoteDir,
+            _remoteFs is { Connected: true });
 
     public async Task Mkdir()
     {
         var fs = _remoteFs;
         if (fs is not { Connected: true }) return;
+        var snap = CaptureOperationSnapshot();
         var name = Prompt("新建远端目录名：");
         if (string.IsNullOrWhiteSpace(name)) return;
+        if (!IsSnapshotStillActive(snap))
+        {
+            StatusLabel.Text = "目录或会话已切换，新建目录已取消";
+            return;
+        }
         try
         {
-            await Task.Run(() => fs.MakeDirectory(JoinRemote(_remoteDir, name)));
-            LoadRemoteDetail(_remoteDir);
+            await Task.Run(() => fs.MakeDirectory(JoinRemote(snap.Directory, name)));
+            if (IsSnapshotStillActive(snap))
+                _ = LoadRemoteDetail(snap.Directory);
         }
         catch (Exception ex) { StatusLabel.Text = "新建失败: " + ex.Message; }
     }
@@ -472,6 +645,7 @@ public partial class SftpPanel : UserControl
             return;
         }
 
+        var snap = CaptureOperationSnapshot();
         var requested = Prompt("新建远端文件名：");
         if (requested == null) return;
         if (!RemoteFileName.TryNormalize(requested, out var name, out var error))
@@ -479,11 +653,18 @@ public partial class SftpPanel : UserControl
             StatusLabel.Text = error;
             return;
         }
+        if (!IsSnapshotStillActive(snap))
+        {
+            StatusLabel.Text = "目录或会话已切换，新建文件已取消";
+            return;
+        }
 
         try
         {
-            await Task.Run(() => fs.CreateEmptyFile(JoinRemote(_remoteDir, name)));
-            await LoadRemoteDetail(_remoteDir);
+            await Task.Run(() => fs.CreateEmptyFile(JoinRemote(snap.Directory, name)));
+            if (!IsSnapshotStillActive(snap)) return;
+            await LoadRemoteDetail(snap.Directory);
+            if (!IsSnapshotStillActive(snap)) return;
             var created = _remoteEntries.FirstOrDefault(row => !row.IsDir && row.Name == name);
             if (created != null)
             {
@@ -507,19 +688,31 @@ public partial class SftpPanel : UserControl
         if (fs is not { Connected: true }) return;
         var rows = TargetRemoteRows();
         if (rows.Count == 0) return;
+        var snap = CaptureOperationSnapshot();
         var preview = string.Join("\n", rows.Take(6).Select(r => r.Name));
         if (MessageBox.Show($"删除 {rows.Count} 项？\n{preview}", "PixShell", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        if (!IsSnapshotStillActive(snap))
+        {
+            StatusLabel.Text = "目录或会话已切换，已取消删除";
+            return;
+        }
 
         List<FsRow> nonEmptyDirectories;
         try
         {
             nonEmptyDirectories = await Task.Run(() => rows
-                .Where(r => r.IsDir && fs.ListDirectory(JoinRemote(_remoteDir, r.Name)).Count != 0)
+                .Where(r => r.IsDir && fs.ListDirectory(JoinRemote(snap.Directory, r.Name)).Count != 0)
                 .ToList());
         }
         catch (Exception ex)
         {
             StatusLabel.Text = "无法确认目录内容，已取消删除: " + ex.Message;
+            return;
+        }
+
+        if (!IsSnapshotStillActive(snap))
+        {
+            StatusLabel.Text = "目录或会话已切换，已取消删除";
             return;
         }
 
@@ -530,17 +723,22 @@ public partial class SftpPanel : UserControl
                 $"以下目录不为空：\n{directoryPreview}\n\n递归删除将永久删除其中的全部内容。是否继续？",
                 "确认递归删除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result != MessageBoxResult.Yes) return;
+            if (!IsSnapshotStillActive(snap))
+            {
+                StatusLabel.Text = "目录或会话已切换，已取消删除";
+                return;
+            }
         }
 
         var recursivePaths = nonEmptyDirectories
-            .Select(r => JoinRemote(_remoteDir, r.Name))
+            .Select(r => JoinRemote(snap.Directory, r.Name))
             .ToHashSet(StringComparer.Ordinal);
         var failures = await Task.Run(() =>
         {
             var errors = new List<string>();
             foreach (var r in rows)
             {
-                var path = JoinRemote(_remoteDir, r.Name);
+                var path = JoinRemote(snap.Directory, r.Name);
                 try
                 {
                     if (r.IsDir && recursivePaths.Contains(path)) DeleteDirectoryRecursive(fs, path);
@@ -550,7 +748,8 @@ public partial class SftpPanel : UserControl
             }
             return errors;
         });
-        await LoadRemoteDetail(_remoteDir);
+        if (IsSnapshotStillActive(snap))
+            await LoadRemoteDetail(snap.Directory);
         StatusLabel.Text = failures.Count == 0
             ? "删除完成"
             : "删除失败: " + string.Join("；", failures.Take(3));
@@ -574,13 +773,20 @@ public partial class SftpPanel : UserControl
         if (fs is not { Connected: true }) return;
         var rows = TargetRemoteRows();
         if (rows.Count == 0) return;
+        var snap = CaptureOperationSnapshot();
         var r = rows[0];
         var name = Prompt($"重命名\"{r.Name}\"为：", r.Name);
         if (string.IsNullOrWhiteSpace(name) || name == r.Name) return;
+        if (!IsSnapshotStillActive(snap))
+        {
+            StatusLabel.Text = "目录或会话已切换，已取消重命名";
+            return;
+        }
         try
         {
-            await Task.Run(() => fs.Rename(JoinRemote(_remoteDir, r.Name), JoinRemote(_remoteDir, name)));
-            LoadRemoteDetail(_remoteDir);
+            await Task.Run(() => fs.Rename(JoinRemote(snap.Directory, r.Name), JoinRemote(snap.Directory, name)));
+            if (IsSnapshotStillActive(snap))
+                _ = LoadRemoteDetail(snap.Directory);
         }
         catch (Exception ex) { StatusLabel.Text = "重命名失败: " + ex.Message; }
     }
@@ -653,20 +859,31 @@ public partial class SftpPanel : UserControl
     /// <summary>关闭打包时：逐项直传上传（目录跳过并提示）。</summary>
     private async Task UploadDirect(List<string> paths, IRemoteFs fs)
     {
+        var snap = CaptureOperationSnapshot();
         var skippedDirs = 0;
         var uploaded = 0;
         foreach (var one in paths)
         {
+            if (!IsSnapshotStillActive(snap))
+            {
+                StatusLabel.Text = "目录或会话已切换，上传已停止";
+                return;
+            }
             if (Directory.Exists(one)) { skippedDirs++; continue; }
             if (!File.Exists(one)) continue;
-            var remote = ResolveUploadDestination(fs, JoinRemote(_remoteDir, Path.GetFileName(one)));
+            var remote = ResolveUploadDestination(fs, JoinRemote(snap.Directory, Path.GetFileName(one)));
+            if (!IsSnapshotStillActive(snap))
+            {
+                StatusLabel.Text = "目录或会话已切换，上传已取消";
+                return;
+            }
             if (remote == null) continue;
             if (await UploadSingleDirectAsync(one, remote, remote + ".pixshell.part." + Guid.NewGuid().ToString("N"), fs)) uploaded++;
         }
         StatusLabel.Text = skippedDirs > 0
             ? $"直传完成（{skippedDirs} 个目录已跳过，请开启「打包传输」）"
             : (uploaded > 0 ? "上传完成" : "无可上传文件");
-        if (uploaded > 0) LoadRemoteDetail(_remoteDir);
+        if (uploaded > 0 && IsSnapshotStillActive(snap)) _ = LoadRemoteDetail(snap.Directory);
     }
 
     private string? ResolveUploadDestination(IRemoteFs fs, string remote)
@@ -716,13 +933,14 @@ public partial class SftpPanel : UserControl
     private async Task UploadItemsPackedAsync(List<string> paths)
     {
         if (_remoteFs is not { Connected: true } fs || ExecRunner == null) return;
+        var snap = CaptureOperationSnapshot();
         var st = SftpTransfer.Stamp();
         var localArchive = Path.Combine(Path.GetTempPath(), $"pixshell_up_{st}.tar.gz");
         var remoteArchive = $"/tmp/pixshell_up_{st}.tar.gz";
         var remoteStaging = $"/tmp/pixshell_up_stage_{st}";
         var cancellation = new System.Threading.CancellationTokenSource();
         var total = paths.Where(File.Exists).Sum(p => new FileInfo(p).Length);
-        var taskId = TransferTasks.Start(TransferTasks.Direction.Upload, $"打包上传 {paths.Count} 项", string.Join(";", paths), _remoteDir, total,
+        var taskId = TransferTasks.Start(TransferTasks.Direction.Upload, $"打包上传 {paths.Count} 项", string.Join(";", paths), snap.Directory, total,
             () => Dispatcher.BeginInvoke(new Action(() => _ = UploadItemsPackedAsync(paths))), cancellation);
         StatusLabel.Text = $"本地打包 {paths.Count} 项 …";
         Log.Info("智能打包上传 " + string.Join(", ", paths.Select(Path.GetFileName)), "sftp");
@@ -748,7 +966,13 @@ public partial class SftpPanel : UserControl
             return;
         }
         TryDelete(localArchive);
-        var outp = await ExecRunner(SftpTransfer.ExtractStagedCommand(remoteArchive, _remoteDir, remoteStaging));
+        if (!ReferenceEquals(_session, snap.Session) || !ReferenceEquals(_remoteFs, snap.RemoteFs) || !_connectEpoch.IsCurrent(snap.ConnectionGen))
+        {
+            TransferTasks.FinishCancelled(taskId, "会话已切换，已阻止远端解压");
+            StatusLabel.Text = "会话已切换，打包上传已取消";
+            return;
+        }
+        var outp = await ExecRunner(SftpTransfer.ExtractStagedCommand(remoteArchive, snap.Directory, remoteStaging));
         var (rc, msg) = SftpTransfer.ParseRemoteRC(outp ?? "");
         if (rc != 0)
         {
@@ -759,11 +983,12 @@ public partial class SftpPanel : UserControl
         {
             var skipped = (outp ?? "").Split('\n').Count(x => x.StartsWith("SKIP:", StringComparison.Ordinal));
             StatusLabel.Text = skipped > 0 ? $"已上传；{skipped} 项因冲突跳过" : $"已上传并解压 {paths.Count} 项";
-            Log.Info("打包上传完成 → " + _remoteDir, "sftp");
+            Log.Info("打包上传完成 → " + snap.Directory, "sftp");
         }
         if (cancellation.IsCancellationRequested) { TransferTasks.FinishCancelled(taskId, "远端操作返回后已尽力清理临时资源"); StatusLabel.Text = "打包上传已取消；远端资源已尽力清理"; }
         else TransferTasks.Finish(taskId, rc == 0, rc == 0 ? "" : msg);
-        LoadRemoteDetail(_remoteDir);
+        if (IsSnapshotStillActive(snap))
+            _ = LoadRemoteDetail(snap.Directory);
     }
 
     /// <summary>下载：打包开且（多选/目录/≥8MB）走远端 tar；否则逐项直传（对齐 mac）。</summary>
@@ -1189,7 +1414,8 @@ public partial class SftpPanel : UserControl
             StatusLabel.Text = "先选远端文件";
             return;
         }
-        var paths = rows.Select(r => JoinRemote(_remoteDir, r.Name)).ToList();
+        var snap = CaptureOperationSnapshot();
+        var paths = rows.Select(r => JoinRemote(snap.Directory, r.Name)).ToList();
         // 多项时以第一项权限为初值（勾选可再改）；未知回落 0755
         var mode = rows[0].Perms != 0 ? rows[0].Perms : 0x1EDu; // 0755
         _chmodWindow ??= new UI.ChmodWindow();
@@ -1201,8 +1427,9 @@ public partial class SftpPanel : UserControl
             ExecRunner,
             msg =>
             {
+                if (!IsSnapshotStillActive(snap)) return;
                 StatusLabel.Text = msg;
-                LoadRemoteDetail(_remoteDir);
+                _ = LoadRemoteDetail(snap.Directory);
             });
     }
 

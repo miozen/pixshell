@@ -1551,13 +1551,13 @@ public partial class MainWindow : Window
     // =====================================================================
     // 内置文本编辑器（SFTP 双击文件 → 打开；保存 → 写回远端，对齐 mac editorPanel 接线）
     // =====================================================================
-    private void OpenEditor(string remotePath, string text)
+    private void OpenEditor(Sftp.RemoteEditDocument doc)
     {
-        Log.Info($"打开编辑器 {remotePath}（{text.Length} 字符）", "editor");
+        Log.Info($"打开编辑器 {doc.RemotePath}（{doc.Text.Length} 字符，{doc.EncodingInfo.Name}）", "editor");
         var win = new UI.EditorWindow { Owner = this };
-        win.Open(remotePath, text);
+        win.Open(doc.RemotePath, doc.Text);
         // 新签名：编辑器要求回报保存结果（null=成功），成功才清脏/才关闭；结果由编辑器自己在头部显示。
-        win.OnSave = (t, report) => Sftp.SaveRemoteFile(remotePath, t, err => report(err));
+        win.OnSave = (t, report) => Sftp.SaveRemoteFile(doc, t, err => report(err));
         // 非模态：编辑远端文件时常要把编辑器挪开对照终端（对齐 mac 独立窗口的初衷）。
         win.Show();
     }

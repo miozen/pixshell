@@ -23,5 +23,8 @@
     <Compile Include="..\Store\TransferTasks.cs" Link="Store\TransferTasks.cs" />
     <Compile Include="..\Sftp\SftpConnectionEpoch.cs" Link="Sftp\SftpConnectionEpoch.cs" />
     <Compile Include="..\Sftp\RemoteFileName.cs" Link="Sftp\RemoteFileName.cs" />
+    <Compile Include="..\Sftp\RemoteDirectoryRefreshCoordinator.cs" Link="Sftp\RemoteDirectoryRefreshCoordinator.cs" />
+    <Compile Include="..\Sftp\RemoteTextEncoding.cs" Link="Sftp\RemoteTextEncoding.cs" />
+    <Compile Include="..\Sftp\RemoteFileOverwrite.cs" Link="Sftp\RemoteFileOverwrite.cs" />
   </ItemGroup>
 </Project>

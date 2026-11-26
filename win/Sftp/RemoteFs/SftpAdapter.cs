@@ -70,7 +70,8 @@ internal class SftpAdapter : IRemoteFs
 
     public void UploadFile(Stream localStream, string remotePath, long remoteOffset = 0, CancellationToken cancellationToken = default)
     {
-        using var remote = _sftp.Open(remotePath, FileMode.OpenOrCreate, FileAccess.Write);
+        var mode = remoteOffset == 0 ? FileMode.Create : FileMode.OpenOrCreate;
+        using var remote = _sftp.Open(remotePath, mode, FileAccess.Write);
         remote.Position = remoteOffset;
         Copy(localStream, remote, cancellationToken);
     }
@@ -94,6 +95,44 @@ internal class SftpAdapter : IRemoteFs
     public void MakeDirectory(string path) => _sftp.CreateDirectory(path);
     public void Delete(string path, bool isDir) { if (isDir) _sftp.DeleteDirectory(path); else _sftp.DeleteFile(path); }
     public void Rename(string from, string to) => _sftp.RenameFile(from, to);
+
+    /// <summary>读取远端文件 POSIX 低 9 位权限（用于编辑器覆写时保留 0600/0755 等权限）。</summary>
+    internal uint? TryGetPosixMode(string path)
+    {
+        try
+        {
+            var a = _sftp.GetAttributes(path);
+            if (a == null) return null;
+            uint m = 0;
+            if (a.OwnerCanRead) m |= 0x100;
+            if (a.OwnerCanWrite) m |= 0x80;
+            if (a.OwnerCanExecute) m |= 0x40;
+            if (a.GroupCanRead) m |= 0x20;
+            if (a.GroupCanWrite) m |= 0x10;
+            if (a.GroupCanExecute) m |= 0x8;
+            if (a.OthersCanRead) m |= 0x4;
+            if (a.OthersCanWrite) m |= 0x2;
+            if (a.OthersCanExecute) m |= 0x1;
+            return m;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal bool TrySetPosixMode(string path, uint mode)
+    {
+        try
+        {
+            _sftp.ChangePermissions(path, (short)(mode & 0x1FFu));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     public void Close()
     {
