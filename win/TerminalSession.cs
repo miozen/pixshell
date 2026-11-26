@@ -199,9 +199,10 @@ public sealed class TerminalSession : IDisposable
     private MethodInfo? _windowChange;
     private volatile bool _connected;
     private volatile bool _isLocal;
-    // ExecAsync 命令追踪：Disconnect 前取消所有正在执行的 SshCommand，防止 SSH.NET CancelAsync 向
-    // 已断开连接发送 TERM 导致 "Client not connected" 异常从线程池回调逃逸 → 整程序闪退。
-    private CancellationTokenSource? _execCts;
+    // ExecAsync 会话级断开取消源：每次并发执行各自创建 LinkedCTS，避免 3s PollMonitor 取消在途 SFTP/工具命令。
+    private CancellationTokenSource? _sessionDisconnectCts;
+    private TerminalOutputBatcher? _outputBatcher;
+    private TerminalSerialWriter? _serialWriter;
 
     /// <summary>终端语义高亮开关（对齐 mac AppDelegate.highlightEnabled）。默认开。</summary>
     public static bool HighlightEnabled { get; set; } = true;
@@ -649,6 +650,7 @@ public sealed class TerminalSession : IDisposable
 
         _localProc = proc;
         _localStdin = proc.StandardInput.BaseStream;
+        EnsureIoPipelines();
         // 退出时清连接态（对齐 SSH ReadPump finally）
         proc.Exited += (_, _) =>
         {
@@ -717,8 +719,7 @@ public sealed class TerminalSession : IDisposable
                         if (n <= 0) break;
                         int c = decoder.GetChars(buf, 0, n, chars, 0, flush: false);
                         var text = c > 0 ? new string(chars, 0, c) : "";
-                        
-                        string b64;
+
                         if (HighlightEnabled)
                         {
                             if (c == 0 && string.IsNullOrEmpty(incompleteAnsi)) continue;
@@ -726,16 +727,18 @@ public sealed class TerminalSession : IDisposable
                             ExtractIncompleteANSI(fullText, out var complete, out incompleteAnsi);
                             if (complete.Length > 0) AppendOutputBuffer(complete);
                             if (complete.Length == 0) continue;
-                            
-                            b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(
-                                Highlight.SemanticHighlight.Decorate(complete, ThemeManager.IsDark, ref activeColor)));
+
+                            var decorated = Highlight.SemanticHighlight.Decorate(complete, ThemeManager.IsDark, ref activeColor);
+                            EnqueueOutputBytes(Encoding.UTF8.GetBytes(decorated));
                         }
                         else
                         {
-                            if (text.Length > 0) AppendOutputBuffer(text);
-                            b64 = Convert.ToBase64String(buf, 0, n);
+                            if (text.Length > 0)
+                            {
+                                AppendOutputBuffer(text);
+                                EnqueueOutputBytes(Encoding.UTF8.GetBytes(text));
+                            }
                         }
-                        View.Dispatcher.BeginInvoke(new Action(() => SendToTerm("out", b64)));
                     }
                 }
                 catch { /* 进程退出 */ }
@@ -782,6 +785,7 @@ public sealed class TerminalSession : IDisposable
             ssh = null; // 所有权已转给字段，finally 不再 Dispose
 
             CacheChannelReflection(shell);
+            EnsureIoPipelines();
 
             _readThread = new Thread(ReadPump) { IsBackground = true, Name = "ssh-read-pump" };
             _readThread.Start();
@@ -815,7 +819,6 @@ public sealed class TerminalSession : IDisposable
                 int c = decoder.GetChars(buf, 0, n, chars, 0, flush: false);
                 var text = c > 0 ? new string(chars, 0, c) : "";
                 
-                string b64;
                 if (HighlightEnabled)
                 {
                     if (c == 0 && string.IsNullOrEmpty(incompleteAnsi)) continue;
@@ -823,17 +826,18 @@ public sealed class TerminalSession : IDisposable
                     ExtractIncompleteANSI(fullText, out var complete, out incompleteAnsi);
                     if (complete.Length > 0) AppendOutputBuffer(complete);
                     if (complete.Length == 0) continue;
-                    
-                    b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(
-                        Highlight.SemanticHighlight.Decorate(complete, ThemeManager.IsDark, ref activeColor)));
+
+                    var decorated = Highlight.SemanticHighlight.Decorate(complete, ThemeManager.IsDark, ref activeColor);
+                    EnqueueOutputBytes(Encoding.UTF8.GetBytes(decorated));
                 }
                 else
                 {
-                    if (text.Length > 0) AppendOutputBuffer(text);
-                    b64 = Convert.ToBase64String(buf, 0, n);
+                    if (text.Length > 0)
+                    {
+                        AppendOutputBuffer(text);
+                        EnqueueOutputBytes(Encoding.UTF8.GetBytes(text));
+                    }
                 }
-                // 回到 UI 线程调用 WebView2（有线程亲和性）。
-                View.Dispatcher.BeginInvoke(new Action(() => SendToTerm("out", b64)));
             }
         }
         catch
@@ -934,9 +938,16 @@ public sealed class TerminalSession : IDisposable
     private void WriteInput(string data)
     {
         if (!_connected || string.IsNullOrEmpty(data)) return;
+        var bytes = Encoding.UTF8.GetBytes(data);
+        if (_serialWriter != null && _serialWriter.EnqueueInput(bytes)) return;
+        WriteRawInputBytes(bytes);
+    }
+
+    private void WriteRawInputBytes(byte[] bytes)
+    {
+        if (!_connected || bytes.Length == 0) return;
         try
         {
-            var bytes = Encoding.UTF8.GetBytes(data);
             // 本机 shell：写 stdin
             if (_isLocal)
             {
@@ -1050,9 +1061,10 @@ public sealed class TerminalSession : IDisposable
             });
         }
         if (_ssh is not { IsConnected: true }) return "";
-        _execCts?.Cancel(); _execCts?.Dispose();
-        _execCts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        var ct = _execCts.Token;
+        var sessionToken = _sessionDisconnectCts?.Token ?? CancellationToken.None;
+        using var callCts = CancellationTokenSource.CreateLinkedTokenSource(sessionToken);
+        callCts.CancelAfter(TimeSpan.FromSeconds(20));
+        var ct = callCts.Token;
         try
         {
             return await Task.Run(() =>
@@ -1062,11 +1074,11 @@ public sealed class TerminalSession : IDisposable
                 ct.ThrowIfCancellationRequested();
                 var result = cmd.Execute();
                 return string.IsNullOrEmpty(result) ? (cmd.Error ?? "") : result;
-            }, ct);
+            }, ct).WaitAsync(ct);
         }
         catch (OperationCanceledException)
         {
-            return "执行取消: 会话已断开";
+            return sessionToken.IsCancellationRequested ? "执行取消: 会话已断开" : "执行超时";
         }
         catch (Exception ex)
         {
@@ -1340,6 +1352,7 @@ public sealed class TerminalSession : IDisposable
         _ossProc = proc;
         _ossStdin = proc.StandardInput.BaseStream;
         _isOpenSSH = true;
+        EnsureIoPipelines();
         proc.Exited += (_, _) =>
         {
             View.Dispatcher.BeginInvoke(new Action(() =>
@@ -1392,7 +1405,6 @@ public sealed class TerminalSession : IDisposable
                     int c = decoder.GetChars(buf, 0, n, chars, 0, flush: false);
                     var text = c > 0 ? new string(chars, 0, c) : "";
                     
-                    string b64;
                     if (HighlightEnabled)
                     {
                         if (c == 0 && string.IsNullOrEmpty(incompleteAnsi)) continue;
@@ -1400,16 +1412,18 @@ public sealed class TerminalSession : IDisposable
                         ExtractIncompleteANSI(fullText, out var complete, out incompleteAnsi);
                         if (complete.Length > 0) AppendOutputBuffer(complete);
                         if (complete.Length == 0) continue;
-                        
-                        b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(
-                            Highlight.SemanticHighlight.Decorate(complete, ThemeManager.IsDark, ref activeColor)));
+
+                        var decorated = Highlight.SemanticHighlight.Decorate(complete, ThemeManager.IsDark, ref activeColor);
+                        EnqueueOutputBytes(Encoding.UTF8.GetBytes(decorated));
                     }
                     else
                     {
-                        if (text.Length > 0) AppendOutputBuffer(text);
-                        b64 = Convert.ToBase64String(buf, 0, n);
+                        if (text.Length > 0)
+                        {
+                            AppendOutputBuffer(text);
+                            EnqueueOutputBytes(Encoding.UTF8.GetBytes(text));
+                        }
                     }
-                    View.Dispatcher.BeginInvoke(new Action(() => SendToTerm("out", b64)));
                 }
             }
             catch { /* 进程退出 */ }
@@ -1674,15 +1688,66 @@ public sealed class TerminalSession : IDisposable
         if (cols == 0 || rows == 0) return;
         _cols = cols;
         _rows = rows;
-        var connected = _connected;
+        if (!_connected) return;
+        if (_serialWriter != null && _serialWriter.EnqueueResize(cols, rows)) return;
+        SendPtyResizeSync(cols, rows);
+    }
+
+    private void SendPtyResizeSync(uint cols, uint rows)
+    {
+        if (!_connected || cols == 0 || rows == 0) return;
         var ch = _channel;
         var wc = _windowChange;
-        if (!connected || wc == null || ch == null) return;
+        if (wc == null || ch == null) return;
         try
         {
             wc.Invoke(ch, new object[] { cols, rows, 0u, 0u });
         }
         catch { /* PTY resize 失败不致命 */ }
+    }
+
+    private void EnsureIoPipelines()
+    {
+        try { _sessionDisconnectCts?.Cancel(); } catch { }
+        try { _sessionDisconnectCts?.Dispose(); } catch { }
+        _sessionDisconnectCts = new CancellationTokenSource();
+
+        try { _serialWriter?.Dispose(); } catch { }
+        _serialWriter = new TerminalSerialWriter(WriteRawInputBytes, SendPtyResizeSync);
+
+        try { _outputBatcher?.Dispose(); } catch { }
+        _outputBatcher = new TerminalOutputBatcher(ScheduleUiOutputDrain);
+    }
+
+    private void EnqueueOutputBytes(byte[] utf8Bytes)
+    {
+        if (utf8Bytes.Length == 0) return;
+        var batcher = _outputBatcher;
+        if (batcher != null)
+        {
+            batcher.Enqueue(utf8Bytes);
+            return;
+        }
+        var b64 = Convert.ToBase64String(utf8Bytes);
+        View.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => SendToTerm("out", b64)));
+    }
+
+    private void ScheduleUiOutputDrain()
+    {
+        try
+        {
+            View.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(DrainOutputBatchOnUi));
+        }
+        catch { }
+    }
+
+    private void DrainOutputBatchOnUi()
+    {
+        var batcher = _outputBatcher;
+        if (batcher == null) return;
+        var batch = batcher.DrainBatch(out _);
+        if (batch.Length == 0) return;
+        SendToTerm("out", Convert.ToBase64String(batch));
     }
 
     // ---------------------------------------------------------------------
@@ -1821,10 +1886,14 @@ public sealed class TerminalSession : IDisposable
         _ossStdin = null;
         _ossProc = null;
         _isOpenSSH = false;
-        // 取消所有正在执行的 SshCommand（防止 SSH.NET CancelAsync 在连接已断开后回调）
-        try { _execCts?.Cancel(); } catch { }
-        try { _execCts?.Dispose(); } catch { }
-        _execCts = null;
+        // 取消所有正在执行的 ExecAsync 调用与后台串行写/合批管线
+        try { _sessionDisconnectCts?.Cancel(); } catch { }
+        try { _sessionDisconnectCts?.Dispose(); } catch { }
+        _sessionDisconnectCts = null;
+        try { _serialWriter?.Dispose(); } catch { }
+        _serialWriter = null;
+        try { _outputBatcher?.Dispose(); } catch { }
+        _outputBatcher = null;
         // SSH
         try { _shell?.Dispose(); } catch { }
         try { _ssh?.Disconnect(); } catch { }
@@ -1834,7 +1903,7 @@ public sealed class TerminalSession : IDisposable
         _channel = null;
         _windowChange = null;
         _isLocal = false;
-        try { _readThread?.Join(2000); } catch { }
+        // 禁止在 UI 线程同步 Join(2000) 造成关签冻结；流关闭后由后台读泵自行收尾。
         _readThread = null;
         if (was)
         {

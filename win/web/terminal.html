@@ -106,11 +106,19 @@ if (bridge) {
 term.onData((data) => post({ t: 'in', d: data }));
 term.onTitleChange((title) => post({ t: 'title', d: title }));
 
+let lastCols = 0, lastRows = 0;
+function postResizeIfChanged() {
+  if (term.cols > 0 && term.rows > 0 && (term.cols !== lastCols || term.rows !== lastRows)) {
+    lastCols = term.cols;
+    lastRows = term.rows;
+    post({ t: 'resize', cols: term.cols, rows: term.rows });
+  }
+}
 function doFit() {
   try { fit.fit(); } catch {}
-  post({ t: 'resize', cols: term.cols, rows: term.rows });
+  postResizeIfChanged();
 }
-term.onResize(() => post({ t: 'resize', cols: term.cols, rows: term.rows }));
+term.onResize(() => postResizeIfChanged());
 window.addEventListener('resize', doFit);
 // WebView2 首帧尺寸常为 0/半高，延迟再 fit 两次
 setTimeout(doFit, 50);

@@ -60,7 +60,10 @@ public static class SemanticHighlight
         public string Put(string s, string kind) { Slots.Add((s, kind)); return SO + (Slots.Count - 1) + EO; }
     }
 
-    private static Regex Re(string p, RegexOptions o = RegexOptions.None) => new(p, o | RegexOptions.Compiled);
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(50);
+    private const int MaxPlainHighlightLength = 4096;
+
+    private static Regex Re(string p, RegexOptions o = RegexOptions.None) => new(p, o | RegexOptions.Compiled, RegexTimeout);
 
     // 顶层：切分已有 ANSI/OSC 转义序列
     private static readonly Regex AnsiRe = Re(@"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[()][0-9A-B0-2]|\x1b[>=]");
@@ -121,18 +124,25 @@ public static class SemanticHighlight
     // ── 底层替换 ────────────────────────────────────────────────────────
     private static string ApplyRegex(string text, Regex re, Func<Match, string> transform)
     {
-        var ms = re.Matches(text);
-        if (ms.Count == 0) return text;
-        var sb = new StringBuilder(text.Length + 64);
-        int idx = 0;
-        foreach (Match m in ms)
+        try
         {
-            if (m.Index > idx) sb.Append(text, idx, m.Index - idx);
-            sb.Append(transform(m));
-            idx = m.Index + m.Length;
+            var ms = re.Matches(text);
+            if (ms.Count == 0) return text;
+            var sb = new StringBuilder(text.Length + 64);
+            int idx = 0;
+            foreach (Match m in ms)
+            {
+                if (m.Index > idx) sb.Append(text, idx, m.Index - idx);
+                sb.Append(transform(m));
+                idx = m.Index + m.Length;
+            }
+            if (idx < text.Length) sb.Append(text, idx, text.Length - idx);
+            return sb.ToString();
         }
-        if (idx < text.Length) sb.Append(text, idx, text.Length - idx);
-        return sb.ToString();
+        catch (RegexMatchTimeoutException)
+        {
+            return text;
+        }
     }
 
     /// <summary>跳过已有占位符区间，只对"未占位"文本片段应用正则（防重复上色 / 防嵌套）。</summary>
@@ -155,6 +165,10 @@ public static class SemanticHighlight
     // ── 纯文本段装饰（老仓库 decoratePlainChunk 的 21 条规则）────────────
     private static string DecoratePlainChunk(string chunk, bool dark)
     {
+        // 超长单行（压缩 JSON / base64 / 洪峰日志）跳过 25 轮正则扫描，防止读泵 CPU 飙高（WIN-BUG-027）。
+        if (string.IsNullOrEmpty(chunk) || chunk.Length > MaxPlainHighlightLength)
+            return chunk;
+
         var st = new State();
         Func<Match, string> K(string kind) => m => st.Put(m.Value, kind);
 
@@ -227,8 +241,6 @@ public static class SemanticHighlight
         s = ReplaceSafe(s, RKey, K("kw"));
         s = ReplaceSafe(s, RKw, K("kw"));                                     // 22) 运维关键词
         s = ReplaceSafe(s, RQuoted, K("str"));                                // 23) 引号字符串（放最后）
-        s = ReplaceSafe(s, RKw, K("kw"));
-        s = ReplaceSafe(s, RQuoted, K("str"));
         s = ReplaceSafe(s, RDelim, K("delim"));
 
         var color = dark ? HlDark : HlLight;
@@ -263,7 +275,9 @@ public static class SemanticHighlight
     
     private static string DecorateBody(string chunk, bool dark, ref bool activeColor)
     {
-        var ms = AnsiRe.Matches(chunk);
+        MatchCollection ms;
+        try { ms = AnsiRe.Matches(chunk); }
+        catch (RegexMatchTimeoutException) { return chunk; }
         if (ms.Count == 0)
         {
             if (activeColor) return chunk;
@@ -287,7 +301,7 @@ public static class SemanticHighlight
             }
             
             var ansi = m.Value;
-            if (ansi == "\u001b[0m" || ansi == "\u001b[39m" || ansi == "\u001b[49m" || ansi == "\u001b[0;39m")
+            if (ansi == "\u001b[0m" || ansi == "\u001b[m" || ansi == "\u001b[39m" || ansi == "\u001b[49m" || ansi == "\u001b[0;39m")
             {
                 activeColor = false;
             }
