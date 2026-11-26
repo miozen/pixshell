@@ -90,3 +90,31 @@
 | **R2-S2** | `WIN-BUG-002`, `013A` | 正常主机（若本机恰好有可用 SOCKS5/HTTP 代理，可选关联测试）。 | 1. 打开「代理管理…」点「＋新建代理」保存一条配置（验证不再崩溃），再编辑/删除该临时代理；<br>2. 若使用 SCP 回退或 SFTP 主路径，确认文件浏览/小文件下载正常。 | 1. 新建/编辑/保存代理界面不再抛 `Invalid Base` 或崩溃，列表正常回显；<br>2. SFTP/SCP 浏览与下载正常。 | `Passed`（用户确认符合预期） |
 | **R2-S3** | `WIN-BUG-018A`, `013A` | 无需真实服务端即可测试：在「备份与恢复 → WebDAV 设置」填入远端 `http://example.com/backup.json`。 | 1. 尝试保存并触发「上传到 WebDAV」或检查配置提示（随后清回原设置或取消）；<br>2. 如有历史 `ssh-jump` 代理主机尝试连接时观察提示。 | 1. 非回环 `http://` WebDAV 明确报错拒绝发送明文 Basic 凭据；<br>2. 不支持的跳板代理显式提示不支持并拦截，不再静默直连。 | `Passed`（用户确认符合预期） |
 | **R2-S4** | `WIN-BUG-024` | 已连接一个正常 SSH 会话标签。 | 1. 执行断开重连操作，并关闭该标签；<br>2. 重新双击原主机验证界面响应与 DPAPI 自动登录正常。 | 1. 断开、重连与关签过程无报错或卡死，既有 DPAPI 凭据正常加载。 | `Passed`（用户确认符合预期） |
+
+---
+
+## 五、R3 阶段验收清单（终端响应性、输出洪峰、高亮与断开生命周期）
+
+- **最新阶段构建（R3 完整发布）**：`Release / net10.0-windows / win-x64`（self-contained），完整路径 `D:\20_Projects\pixshell\win\publish\win-x64\PixShell.exe`（构建时间 `2026/11/26 16:06:26`，`0` 错误，xUnit **`62/62` 通过**）。
+
+### 5.1 R3 自动化单元测试项（4 项新增，xUnit `net10.0`）
+
+| 追溯编号 | 关联缺陷 | 覆盖内容与验证边界 | 对应测试方法（`win/tests/`） | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **R3-1** | `WIN-BUG-025`, `026` | 200 次高频输出仅触发 1 次 UI 消费信号；极端背压（超出上限）丢弃最旧块保内存并按 `maxBatchBytes` 分批释放 | `TerminalStabilityTests.OutputBatcherCoalescesHighFrequencyFloodIntoSinglePendingDrainSignal`<br>`TerminalStabilityTests.OutputBatcherDropsOldestChunksUnderBackpressureAndSplitsByMaxBatchBytes` | `Passed` |
+| **R3-2** | `WIN-BUG-026`, `027` | 底层流阻塞时 `TerminalSerialWriter.EnqueueInput`/`EnqueueResize` 立即返回不阻塞调用线程，恢复后严格保持 FIFO 输入顺序及合并最新 resize | `TerminalStabilityTests.SerialWriterNeverBlocksCallerDuringStalledStreamAndPreservesFifoPlusCoalescedResize` | `Passed` |
+| **R3-3** | `WIN-BUG-027`, `025` | `SemanticHighlight.Decorate` 支持 `\u001b[m` 重置、`>4096` 超长纯文本行 O(1) 快速跳过不卡 CPU，正则配 50ms 超时保护 | `TerminalStabilityTests.SemanticHighlightSkipsOversizedPlainLineAndResetsOnShortEscM` | `Passed` |
+
+### 5.2 R3 自动化协议集成测试项
+
+| 追溯编号 | 关联缺陷 | 隔离环境与验证内容 | 依赖条件 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **R3-IT1** | `WIN-BUG-025/026/027` | 真实远端高吞吐 `yes`/大日志输出 + 窗口拖动/按键 + 并发 `PollMonitor` 与 SFTP 打包 + 断网关签全链路回环压测 | Docker / Windows OpenSSH Server / WSL `openssh-server` | `Environment-Limited`（未安装 `sshd`/Docker，未执行，**未标记通过**） |
+
+### 5.3 R3 精简人工 GUI 冒烟清单（仅交互与流畅度体验，3 项）
+
+| 冒烟编号 | 关联缺陷 | 测试前置条件 | 精简操作步骤 | 预期结果 | 验收状态 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **R3-S1** | `WIN-BUG-025`, `027` | 已连接一个正常 SSH 或本机终端会话。 | 1. 执行一次较大输出命令（如 `ls -laR /usr` 或 `find /etc`）并同时来回切换标签、拖动侧栏或按 `Ctrl+C`；<br>2. 调整一次窗口大小。 | 1. 大量输出刷屏期间 WPF 界面、标签切换、拖动与 `Ctrl+C` 中断保持流畅不假死，中文输出无 `U+FFFD`；<br>2. 窗口/终端尺寸自适应贴合无明显延迟。 | `Passed`（用户确认通过） |
+| **R3-S2** | `WIN-BUG-026` | 已连接一个 SSH 会话标签。 | 1. 粘贴一段多行命令/文本到终端；<br>2. 在终端运行命令期间点击顶部「文件/监控」或关闭当前标签。 | 1. 粘贴响应迅速不卡窗口；<br>2. 关闭正在运行输出或待命的会话标签时窗口瞬间关闭标签，不再卡顿 2 秒。 | `Passed`（用户确认通过） |
+| **R3-S3** | `WIN-BUG-025`, `026` | 正在开启右侧监控栏并连接到同一台 SSH 主机。 | 1. 等待右侧监控图表刷新一次，同时在左侧 SFTP 浏览或切换目录；<br>2. 断开再重连一次。 | 1. 监控 3 秒自动刷新与 SFTP/工具栏操作互不干扰；<br>2. 断开重连后输入输出正常。 | `Passed`（用户确认通过） |
