@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Store\LocalFileTransaction.cs" Link="Store\LocalFileTransaction.cs" />
     <Compile Include="..\Store\QuickCommands.cs" Link="Store\QuickCommands.cs" />
     <Compile Include="..\Store\ReleaseSelection.cs" Link="Store\ReleaseSelection.cs" />
     <Compile Include="..\Store\CommandSuggestions.cs" Link="Store\CommandSuggestions.cs" />
