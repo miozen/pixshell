@@ -262,7 +262,7 @@ public sealed class HeadlessBridgeHost : IBridgeHost
     {
         return WithLock(() =>
         {
-            if (!Valid(session, out var s)) return false;
+            if (!Valid(session, out var s) || s.Shell == null) return false;
             try { s.Shell.Write(text); return true; }
             catch { return false; }
         });

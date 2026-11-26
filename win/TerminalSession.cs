@@ -2102,10 +2102,10 @@ public sealed class TerminalSession : IDisposable
                 View.CoreWebView2.NavigationStarting -= OnWebSshNavStarting;
                 View.CoreWebView2.NewWindowRequested -= OnWebSshNewWindow;
                 View.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+                View.CoreWebView2.ContextMenuRequested -= OnContextMenuRequested;
             }
         }
         catch { }
-        try { View.CoreWebView2.ContextMenuRequested -= OnContextMenuRequested; } catch { }
         try { View.SizeChanged -= OnViewSizeChanged; } catch { }
         _fitTimer?.Stop();
         try { View.Dispose(); } catch { }
